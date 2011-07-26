@@ -58,6 +58,7 @@ class Error(Exception):
 
 class Proxy(object):
     def __init__(self, url):
+        print "proxy url = %s " %url
         (schema, netloc, path, query, fragment) = urlsplit(url)
         auth = None
         if netloc.find('@') >= 0:
@@ -133,8 +134,9 @@ class Server(resource.Resource):
     @defer.inlineCallbacks
     def render_POST(self, request):
         # missing batching, 1.0 notifications
+        print "render_post started \n"
         data = request.content.read()
-        
+        print "request.content.read = %s ",data
         if self.extra_headers is not None:
             for name, value in self.extra_headers.iteritems():
                 request.setHeader(name, value)
@@ -169,10 +171,11 @@ class Server(resource.Resource):
             method_name = 'rpc_' + method
             if not hasattr(self, method_name):
                 raise Error(-32601, u'Method not found')
-            method_meth = getattr(self, method_name)
-            
+            print "method_name = %s \n" %method_name
+            method_meth = getattr(self, method_name) 
+          
             df = defer.maybeDeferred(method_meth, *params)
-            
+        
             if id_ is None:
                 return
             
@@ -182,7 +185,7 @@ class Server(resource.Resource):
             #w    raise e
             except Exception, e:
                 raise Error(-32099, u'Unknown error: ' + str(e))
-            
+            print "result = %s " %result
             res = json.dumps({
                 'jsonrpc': '2.0',
                 'id': id_,
@@ -212,9 +215,11 @@ class Listener(Server):
     
     @defer.inlineCallbacks
     def rpc_getwork(self, data=None):
+        print "rpc_getwork data = %s \n" %data
         try:
             if data:
                 # Submit work upstream
+                print "submit work upstream \n"
                 proof = (
                     yield self.parent.rpc_getworkaux("", data, 0))
                 if proof is False:
@@ -222,6 +227,7 @@ class Listener(Server):
                     defer.returnValue(False)
                 else:
                     aux = proof['aux']
+                    print "proof aux = %s " %aux
                     # strip off merkle tree size and nonce
                     aux_hash = proof['aux'][0:-16]
                     aux_solved = (
@@ -234,8 +240,11 @@ class Listener(Server):
                     defer.returnValue(parent_solved or aux_solved)
             else:
                 # Get work
+                print "get work \n"
                 aux_block = (yield self.auxs[0].rpc_getauxblock())
+                print "aux_block =  \n"
                 aux_block_hash = aux_block['hash']
+                print "aux_block_hash = %s \n",aux_block_hash
                 # trivial merkle tree for now
                 aux_merkle_root = aux_block_hash
                 # merkle tree size = 1, nonce = 0
@@ -252,8 +261,9 @@ class Listener(Server):
             raise
 
 def main(args):
+    print "started main "
     parent = Proxy(args.parent_url)
-    aux_urls = args.aux_urls or ['http://pw:un@127.0.0.1:8342/']
+    aux_urls = args.aux_urls or ['http://un:pw@127.0.0.1:8342/']
     auxs = [Proxy(url) for url in aux_urls]
     reactor.listenTCP(args.worker_port, server.Site(Listener(parent, auxs)))
 
@@ -266,14 +276,14 @@ def run():
         type=int, action='store', default=9992, dest='worker_port')
     parent_group = parser.add_argument_group('parent chain (bitcoin) interface')
     parent_group.add_argument('-p', '--parent-url', metavar='PARENT_URL',
-                                help='connect to the parent RPC at this address (default: http://pw:un@127.0.0.1:8332/)',
+                                help='connect to the parent RPC at this address (default: http://un:pw:@127.0.0.1:8332/)',
                                 type=str, action='store',
-                                default='http://pw:un@127.0.0.1:8332/',
+                                default='http://un:pw@127.0.0.1:8332/',
                                 dest='parent_url')
 
     aux_group = parser.add_argument_group('aux chain (e.g. namecoin) interface(s)')
     aux_group.add_argument('-x', '--aux-url', metavar='AUX_URL',
-                                help='connect to the aux RPC at this address (default: http://pw:un@127.0.0.1:8342/)',
+                                help='connect to the aux RPC at this address (default: http://un:pw@127.0.0.1:8342/)',
                                 type=str, action='store', nargs='+',
                                 dest='aux_urls')
     

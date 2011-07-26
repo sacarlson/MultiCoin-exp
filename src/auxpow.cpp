@@ -12,7 +12,7 @@ using namespace boost;
 bool CAuxPow::Check(uint256 hashAuxBlock, int nChainID)
 {
     if (parentBlock.GetChainID() == nChainID)
-        return error("Aux POW parent has our chain ID");
+        return error("Aux POW parent has our chain ID of %d \n",nChainID);
 
     if (vChainMerkleBranch.size() > 30)
         return error("Aux POW chain merkle branch too long");

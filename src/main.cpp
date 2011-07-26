@@ -1298,14 +1298,16 @@ bool CBlock::AddToBlockIndex(unsigned int nFile, unsigned int nBlockPos)
 int GetAuxPowStartBlock()
 {
     if (fTestNet)
-        return 0; // Always on testnet
+        //return 0; // Always on testnet
+        return GetArgIntxx(0,"-AuxPowStartBlock");
     else
         return INT_MAX; // Never on prodnet
 }
 
 int GetOurChainID()
 {
-    return 0x0000;
+    //return 0x0000;
+    return GetArgIntxx(0,"-OurChainID");
 }
 
 bool CBlock::CheckProofOfWork(int nHeight) const
@@ -1317,7 +1319,7 @@ bool CBlock::CheckProofOfWork(int nHeight) const
         // - parent block must not have the same chain ID (see CAuxPow::Check)
         // - index of this chain in chain merkle tree must be pre-determined (see CAuxPow::Check)
         if (!fTestNet && GetChainID() != GetOurChainID())
-            return error("CheckProofOfWork() : block does not have our chain ID");
+            return error("CheckProofOfWork() : block does not have our chain ID of %d, GetChainID() = %d",GetOurChainID(), GetChainID());
 
         if (auxpow.get() != NULL)
         {
