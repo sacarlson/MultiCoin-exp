@@ -40,12 +40,10 @@ Where the fields are:
 Currently only one aux chain is supported.
 '''
 
-<<<<<<< HEAD
-=======
+
 AUX_UPDATE_INTERVAL = 10
 MERKLE_TREES_TO_KEEP = 12
 
->>>>>>> addthistoo
 class Error(Exception):
     def __init__(self, code, message, data=''):
         if not isinstance(code, int):
@@ -107,11 +105,8 @@ class Proxy(object):
             defer.returnValue(resp['result'])
         except ConnectionRefusedError:
             print>>sys.stderr, "Could not connect to %s" %(self._url)
-<<<<<<< HEAD
-            raise Error(-32099, u'Could not connect to backend', self._netloc)
-=======
+
             raise Error(-32099, u'Could not connect to backend', self._url)
->>>>>>> addthistoo
     
     def __getattr__(self, attr):
         if attr.startswith('rpc_'):
@@ -212,16 +207,7 @@ class Server(resource.Resource):
             request.write(res)
 
 class Listener(Server):
-<<<<<<< HEAD
-    def __init__(self, parent, auxs):
-        Server.__init__(self)
-        self.parent = parent
-        if len(auxs) != 1:
-            raise "exactly one aux supported at this time"
-        self.auxs = auxs
-        self.putChild('', self)
-    
-=======
+
     def __init__(self, parent, auxs, merkle_size):
         Server.__init__(self)
         self.parent = parent
@@ -287,43 +273,12 @@ class Listener(Server):
         reactor.callLater(AUX_UPDATE_INTERVAL, self.update_aux_process)
         self.update_auxs()
 
->>>>>>> addthistoo
     @defer.inlineCallbacks
     def rpc_getwork(self, data=None):
         try:
             if data:
                 # Submit work upstream
-<<<<<<< HEAD
-                proof = (
-                    yield self.parent.rpc_getworkaux("", data, 0))
-                if proof is False:
-                    print>>sys.stderr, "work submitted, but parent rejected"
-                    defer.returnValue(False)
-                else:
-                    aux = proof['aux']
-                    # strip off merkle tree size and nonce
-                    aux_hash = proof['aux'][0:-16]
-                    aux_solved = (
-                        yield self.auxs[0].rpc_getauxblock(aux_hash, proof['auxpow']))
-                    parent_solved = (
-                        yield self.parent.rpc_getworkaux("", data))
-                    print "%s,solve,%s,%s" %(datetime.utcnow().isoformat(),
-                                             1 if parent_solved else 0,
-                                             1 if aux_solved else 0)
-                    defer.returnValue(parent_solved or aux_solved)
-            else:
-                # Get work
-                aux_block = (yield self.auxs[0].rpc_getauxblock())
-                aux_block_hash = aux_block['hash']
-                # trivial merkle tree for now
-                aux_merkle_root = aux_block_hash
-                # merkle tree size = 1, nonce = 0
-                aux = aux_merkle_root + "01000000" + "00000000"
-                work = (yield self.parent.rpc_getworkaux(aux))
-                # Find highest target
-                targets = [work['target'][::-1]] # reverse hex string due to endianess
-                targets.append(aux_block['target'][::-1])
-=======
+
                 any_solved = False
                 aux_solved = []
 
@@ -378,7 +333,6 @@ class Listener(Server):
                 # Find highest target
                 targets = [work['target'][::-1]] # reverse hex string due to endianess
                 targets.extend(self.aux_targets)
->>>>>>> addthistoo
                 targets.sort()
                 work['target'] = targets[-1][::-1]
                 defer.returnValue(work)
@@ -388,11 +342,6 @@ class Listener(Server):
 
 def main(args):
     parent = Proxy(args.parent_url)
-<<<<<<< HEAD
-    aux_urls = args.aux_urls or ['http://pw:un@127.0.0.1:8342/']
-    auxs = [Proxy(url) for url in aux_urls]
-    reactor.listenTCP(args.worker_port, server.Site(Listener(parent, auxs)))
-=======
     aux_urls = args.aux_urls or ['http://un:pw@127.0.0.1:8342/']
     auxs = [Proxy(url) for url in aux_urls]
     if args.merkle_size is None:
@@ -408,7 +357,6 @@ def main(args):
     listener = Listener(parent, auxs, args.merkle_size)
     listener.update_aux_process()
     reactor.listenTCP(args.worker_port, server.Site(listener))
->>>>>>> addthistoo
 
 def run():
     parser = argparse.ArgumentParser(description='merge-mine-proxy (version %s)' % (__version__,))
@@ -417,20 +365,6 @@ def run():
     worker_group.add_argument('-w', '--worker-port', metavar='PORT',
         help='listen on PORT for RPC connections from miners asking for work and providing responses (default: 9992)',
         type=int, action='store', default=9992, dest='worker_port')
-<<<<<<< HEAD
-    parent_group = parser.add_argument_group('parent chain (bitcoin) interface')
-    parent_group.add_argument('-p', '--parent-url', metavar='PARENT_URL',
-                                help='connect to the parent RPC at this address (default: http://pw:un@127.0.0.1:8332/)',
-                                type=str, action='store',
-                                default='http://pw:un@127.0.0.1:8332/',
-                                dest='parent_url')
-
-    aux_group = parser.add_argument_group('aux chain (e.g. namecoin) interface(s)')
-    aux_group.add_argument('-x', '--aux-url', metavar='AUX_URL',
-                                help='connect to the aux RPC at this address (default: http://pw:un@127.0.0.1:8342/)',
-                                type=str, action='store', nargs='+',
-                                dest='aux_urls')
-=======
 
     parent_group = parser.add_argument_group('parent chain (bitcoin) interface')
     parent_group.add_argument('-p', '--parent-url', metavar='PARENT_URL',
@@ -448,7 +382,6 @@ def run():
                            help='use these many entries in the merkle tree.  Must be a power of 2. Default is lowest power of 2 greater than number of aux chains.',
                            type=int, action='store', default=None,
                            dest='merkle_size')
->>>>>>> addthistoo
     
     args = parser.parse_args()
     reactor.callWhenRunning(main, args)
