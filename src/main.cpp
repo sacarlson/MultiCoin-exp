@@ -684,9 +684,10 @@ bool CBlock::ReadFromDisk(const CBlockIndex* pindex, bool fReadTransactions)
 
 void CBlock::SetAuxPow(CAuxPow* pow)
 {
-    nVersion = BLOCK_VERSION_DEFAULT;
     if (pow != NULL)
         nVersion |=  BLOCK_VERSION_AUXPOW;
+    else
+        nVersion &=  ~BLOCK_VERSION_AUXPOW;
     auxpow.reset(pow);
 }
 
@@ -1319,6 +1320,7 @@ bool CBlock::CheckProofOfWork(int nHeight) const
         if (!fTestNet && GetChainID() != GetOurChainID())
             return error("CheckProofOfWork() : block does not have our chain ID");
 
+
         if (auxpow.get() != NULL)
         {
             if (!auxpow->Check(GetHash(), GetChainID()))
@@ -1347,6 +1349,28 @@ bool CBlock::CheckProofOfWork(int nHeight) const
     }
     return true;
 }
+
+        if (auxpow.get() != NULL)
+        {
+            if (!auxpow->Check(GetHash(), GetChainID()))
+                return error("CheckProofOfWork() : AUX POW is not valid");
+            // Check proof of work matches claimed amount
+            if (!::CheckProofOfWork(auxpow->GetParentBlockHash(), nBits))
+                return error("CheckProofOfWork() : AUX proof of work failed");
+        }
+        else
+        {
+            // Check proof of work matches claimed amount
+            if (!::CheckProofOfWork(GetHash(), nBits))
+                return error("CheckProofOfWork() : proof of work failed");
+        }
+    }
+    else
+    {
+        if (auxpow.get() != NULL)
+        {
+            return error("CheckProofOfWork() : AUX POW is not allowed at this block");
+        }
 
 
 bool CBlock::CheckBlock(int nHeight) const
@@ -3397,6 +3421,7 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet)
         }
     }
 }
+
 
 
 bool CBlockIndex::CheckIndex() const

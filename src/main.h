@@ -30,8 +30,10 @@ class CBlockIndex;
 
 class CAuxPow;
 
+
 void SetMaxMoney(int64 nValue); 
 int64 GetMaxMoney();
+
 
 static const unsigned int MAX_BLOCK_SIZE = 1000000;
 static const unsigned int MAX_BLOCK_SIZE_GEN = MAX_BLOCK_SIZE/2;
@@ -768,6 +770,7 @@ template <typename Stream>
 int ReadWriteAuxPow(Stream& s, boost::shared_ptr<CAuxPow>& auxpow, int nType, int nVersion, CSerActionUnserialize ser_action);
 
 template <typename Stream>
+
 int ReadWriteAuxPow(Stream& s, const boost::shared_ptr<CAuxPow>& auxpow, int nType, int nVersion, CSerActionGetSerializeSize ser_action);
 
 enum
