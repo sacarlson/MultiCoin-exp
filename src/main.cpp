@@ -1299,14 +1299,16 @@ bool CBlock::AddToBlockIndex(unsigned int nFile, unsigned int nBlockPos)
 int GetAuxPowStartBlock()
 {
     if (fTestNet)
-        return 0; // Always on testnet
+        //return 0; // Always on testnet
+        return GetArgIntxx(0,"-AuxPowStartBlock");
     else
         return INT_MAX; // Never on prodnet
 }
 
 int GetOurChainID()
 {
-    return 0x0000;
+    //return 0x0000;
+    return GetArgIntxx(0,"-OurChainID");
 }
 
 bool CBlock::CheckProofOfWork(int nHeight) const
