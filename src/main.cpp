@@ -706,7 +706,15 @@ int64 static GetBlockValue(int nHeight, int64 nFees)
     if (mapArgs.count("-custom_inflation"))
     {
         if (nHeight>GetArgIntxx(100,"-inflation_triger"))
-            nSubsidy = GetArgIntxx(.01,"-post_Subsidy") * COIN;
+        {
+            nSubsidy = GetArgIntxx(0.01,"-post_Subsidy") * COIN;
+            if (nHeight>GetArgIntxx(GetMaxMoney(),"-inflation_trigerB"))
+            {
+                nSubsidy = GetArgIntxx(0.01,"-post_SubsidyB") * COIN;
+                if (nHeight>GetArgIntxx(GetMaxMoney(),"-inflation_trigerC"))
+                    nSubsidy = GetArgIntxx(0.01,"-post_SubsidyC") * COIN;
+            }
+        }
         printf("nSubsidy before shift =   %lu  GetArgInt-Subsidy = %u or %lu\n",nSubsidy,GetArgIntxx(50,"-Subsidy"),GetArgIntxx(50,"-Subsidy"));
     }
     // Subsidy is cut in half every 4 years
@@ -724,13 +732,38 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
     const int64 nTargetSpacing = 10 * 60;
     const int64 nInterval = nTargetTimespan / nTargetSpacing;
 
+    printf("entered GetNextWorkingRequired function at nHeight = %d \n",pindexLast->nHeight);
     // Genesis block
     if (pindexLast == NULL)
+    {
+        printf("GetNextWorkingRequired pindexLast == NULL, return bnProofOfWorkLimit = %08x hex \n",bnProofOfWorkLimit.GetCompact());
+        printf(" target = %s \n",CBigNum().SetCompact(pindexLast->nBits).getuint256().ToString().c_str());
         return bnProofOfWorkLimit.GetCompact();
+    }
+
+    if (GetArgIntxx(0,"-Diff_triger_block") > 0)
+    {
+        printf(" Diff_triger_block > 0 detected at value of %d \n",GetArgIntxx(0,"-Diff_triger_block"));
+        if (GetArgIntxx(0,"-Diff_triger_block") < pindexLast->nHeight)
+        {
+            printf(" Diff_triger_block < nHeights  with nHeights now at: %d \n",pindexLast->nHeight);
+            if (CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_triger"))>CBigNum().SetCompact(pindexLast->nBits))
+            {
+                printf(" Diff_post_triger > nBits detected so will override nBits value to: %d \n",GetArgIntxx(487587839,"-Diff_post_triger"));
+                printf(" present target is: %s \n",CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_triger")).getuint256().ToString().c_str());
+                // default value of post_triger here 487587839 is same as weeds nbits = 1d0fffff,  dDiff dec = 0.0624
+                return GetArgIntxx(487587839,"-Diff_post_triger");
+            }
+        }
+    }
 
     // Only change once per interval
     if ((pindexLast->nHeight+1) % nInterval != 0)
+    {
+        printf("GetNextWorkingRequired once per interval, return pindexLast->nBits = %08x hex \n",pindexLast->nBits);
+        printf(" target = %s \n",CBigNum().SetCompact(pindexLast->nBits).getuint256().ToString().c_str());
         return pindexLast->nBits;
+    }
 
     // Go back by what we want to be 14 days worth of blocks
     const CBlockIndex* pindexFirst = pindexLast;
