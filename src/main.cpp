@@ -703,19 +703,27 @@ int64 static GetBlockValue(int nHeight, int64 nFees)
 {
     //int64 nSubsidy = 50 * COIN;
     int64 nSubsidy = (GetArgIntxx(50,"-Subsidy") * COIN);
+    nSubsidy = nSubsidy + (GetArgIntxx(0,"-Subsidy_small"));
     if (mapArgs.count("-custom_inflation"))
     {
-        if (nHeight>GetArgIntxx(100,"-inflation_triger"))
+        printf("custom_inflation is set \n");
+        if (nHeight > GetArgIntxx(INT_MAX,"-inflation_triger"))
         {
-            nSubsidy = GetArgIntxx(0.01,"-post_Subsidy") * COIN;
-            if (nHeight>GetArgIntxx(GetMaxMoney(),"-inflation_trigerB"))
+            printf("nHeight > inflation_triger detected \n");
+            nSubsidy = GetArgIntxx(0,"-post_Subsidy") * COIN;
+            nSubsidy = nSubsidy + (GetArgIntxx(0,"-post_Subsidy_small"));
+            if (nHeight > GetArgIntxx(INT_MAX,"-inflation_trigerB"))
             {
-                nSubsidy = GetArgIntxx(0.01,"-post_SubsidyB") * COIN;
-                if (nHeight>GetArgIntxx(GetMaxMoney(),"-inflation_trigerC"))
-                    nSubsidy = GetArgIntxx(0.01,"-post_SubsidyC") * COIN;
+                printf("nHeight > inflation_trigerB detected \n");
+                nSubsidy = GetArgIntxx(0,"-post_SubsidyB") * COIN;
+                nSubsidy = nSubsidy + (GetArgIntxx(0,"-post_SubsidyB_small"));
+                if (nHeight > GetArgIntxx(INT_MAX,"-inflation_trigerC"))
+                {
+                    nSubsidy = (GetArgIntxx(0,"-post_SubsidyC") * COIN) + GetArgIntxx(0,"-post_SubsidyC_small");
+                }
             }
         }
-        printf("nSubsidy before shift =   %lu  GetArgInt-Subsidy = %u or %lu\n",nSubsidy,GetArgIntxx(50,"-Subsidy"),GetArgIntxx(50,"-Subsidy"));
+        printf("nSubsidy after custom =   %lu  \n",nSubsidy);
     }
     // Subsidy is cut in half every 4 years
     //nSubsidy >>= (nHeight / 210000);
@@ -747,13 +755,14 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
         if (GetArgIntxx(0,"-Diff_triger_block") < pindexLast->nHeight)
         {
             printf(" Diff_triger_block < nHeights  with nHeights now at: %d \n",pindexLast->nHeight);
-            if (CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_triger"))>CBigNum().SetCompact(pindexLast->nBits))
+            if (CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_triger")) < CBigNum().SetCompact(pindexLast->nBits))
             {
                 printf(" Diff_post_triger > nBits detected so will override nBits value to: %d \n",GetArgIntxx(487587839,"-Diff_post_triger"));
                 printf(" present target is: %s \n",CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_triger")).getuint256().ToString().c_str());
                 // default value of post_triger here 487587839 is same as weeds nbits = 1d0fffff,  dDiff dec = 0.0624
                 return GetArgIntxx(487587839,"-Diff_post_triger");
             }
+            printf(" present target already bigger than: %s \n",CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_triger")).getuint256().ToString().c_str());
         }
     }
 
@@ -1352,7 +1361,9 @@ bool CBlock::CheckProofOfWork(int nHeight) const
         // - this block must have our chain ID
         // - parent block must not have the same chain ID (see CAuxPow::Check)
         // - index of this chain in chain merkle tree must be pre-determined (see CAuxPow::Check)
-        if (!fTestNet && GetChainID() != GetOurChainID())
+        // if (!fTestNet && GetChainID() != GetOurChainID())
+        printf("GetChainID = %d  GetOurChainID = %d \n",GetChainID(),GetOurChainID());
+        if (nHeight != INT_MAX && GetChainID() != GetOurChainID())
             return error("CheckProofOfWork() : block does not have our chain ID");
 
         if (auxpow.get() != NULL)
@@ -1669,7 +1680,8 @@ bool LoadBlockIndex(bool fAllowNew)
             hashGenesisBlock = uint256("0x00000007199508e34a9ff81e6ec0c477a4cccff2a4767a8eee39c11db367b008");
             printf("testnet original hashGenesisBlock assigned for ver 2.20.0 \n");
         }
-        bnProofOfWorkLimit = CBigNum(~uint256(0) >> 28);
+        //bnProofOfWorkLimit = CBigNum(~uint256(0) >> 28);
+        bnProofOfWorkLimit = CBigNum(~uint256(0) >> GetArgIntxx(28,"-ProofOfWorkLimit"));
         pchMessageStart[0] = GetCharArg(0xfa,"-pscMessageStart0");
         pchMessageStart[1] = GetCharArg(0xbf,"-pscMessageStart1");
         pchMessageStart[2] = GetCharArg(0xb5,"-pscMessageStart2");
