@@ -87,15 +87,15 @@ post_Subsidy_small=10000
 inflation_trigerB=50000
 
 #subsidy paid after block number above inflation_trigerB and less than block number of inflation_trigerC
-post_SubsidyB=1
-post_SubsidyB_small=0
+post_SubsidyB=0
+post_SubsidyB_small=100000
 
 #inflation trigerC is another inflation change block number grater than this will be post_SubsidyC value 
 inflation_trigerC=150000
 
 #subsidy paid after block number above inflation_trigerB and less than block number of inflation_trigerC
-post_SubsidyC=5
-post_SubsidyC_small=0
+post_SubsidyC=0
+post_SubsidyC_small=1000000
 
 # pszTimestamp  as seen on front page of New York Times paper to be used here for beerA
 #pszTimestamp="New York Times page 1, JULY 30, 2011 House Passes Boehner Plan Senate Says No Debt Ceiling Impasse Heads Into Weekend"
@@ -108,11 +108,9 @@ pszTimestamp=New York Times page1, Aug 1, 2011 President Obama said the accord w
 block_hashMerkleRoot=0xa05302c98a5d93b2959b9dd8fc710e548949caac4a2e42faf93d7a84a512a24c
 
 #pbtc new genesisblock 
-#genesisblock=0x0000000449667666d4d9dfe16ebf401bd71b412de1de667cf000916c2ad7dae3
 genesisblock=0x000000187ee4701eea4a006886bc85417f8e05df9f69ce149f95462435c12afc
 
 #Pbtc new block.ntime  time epoc use date +%s to get this number before you create a new chain beerA
-#block_nTime=1312088298
 block_nTime=1312277130
 
 #Pbtc new block.nNonce
@@ -169,13 +167,15 @@ pscMessageStart3=219
 # larger than this number nBits value will be forced to value at least as big as Diff_post_triger
 # before this triger the difficulty will be around what it was at the genisis block of block_nBits settings
 # default is 0 that will disable this function and run normaly from block_nBits settings from genisis
-Diff_triger_block=11
+Diff_triger_block=999
 
 #this is the value that nBits will be forced to be as a minimum value after the Diff_triger_block number.
 # this value must be in decimal format same format as block_nBits.
 # to work with near difficulty of namecoin as parent merge mine would require 453237473, or 436940612 for bitcoin
 # just a bit bellow weeds = dDiff dec = 0.05 = nBits = 1d13ffec = 487849964
-Diff_post_triger=487849964
+# 1/4 diff of namecoin =  dDiff dec = 23509.0 nBits hex = 1b02c9a3 nBits dec = 453167523
+#Diff_post_triger=487849964
+Diff_post_triger=453167523
 
 #block number at witch time we start to accept merge mining aux chain proof-of-work
 AuxPowStartBlock=1000
