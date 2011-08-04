@@ -10,10 +10,11 @@ printtoconsole=1
 testnet=1
 
 dns=1
-#addnode=www.beertokens.info
+addnode=www.beertokens.info
 addnode=192.168.2.158
+#addnode=192.168.2.250
 #connect=192.168.2.158
-noirc=1
+#noirc=1
 # listen port can now be set to other than 18333 for testnet or proto nets 
 port=10333
 
@@ -47,10 +48,11 @@ paytxfee=.001
 testnet_config=1
 
 #check_block is a block to verify the integrity up to this block number used with check_hash if not set it's not checked
-#check_block=50
+check_block=135
 
 #check_hash is the hash value of the check_block number used to verify integrity of block chain
-#check_hash=0x00000000b1d0937a26fec5a735964674d3760641df217f54d5f9a8f1f25fd15e 
+#check_hash=0x00000000b1d0937a26fec5a735964674d3760641df217f54d5f9a8f1f25fd15e
+check_hash=0x00000002a86be57c214158099dc168b0c74540106b5f7408b4c9e4b3b41ad420 
 
 #to enable scripts uncomment nonstandard here this overrides IsStandard() to return true
 nonstandard=1
