@@ -51,8 +51,8 @@ testnet_config=1
 check_block=135
 
 #check_hash is the hash value of the check_block number used to verify integrity of block chain
-#check_hash=0x00000000b1d0937a26fec5a735964674d3760641df217f54d5f9a8f1f25fd15e
-check_hash=0x00000002a86be57c214158099dc168b0c74540106b5f7408b4c9e4b3b41ad420 
+#check_hash=0x00000002a86be57c214158099dc168b0c74540106b5f7408b4c9e4b3b41ad420 
+check_hash=0x0000000e9a0490f4ffc9a401d72e8b3d620f83fb122173f15df7838ee9835eff 
 
 #to enable scripts uncomment nonstandard here this overrides IsStandard() to return true
 nonstandard=1
@@ -106,7 +106,6 @@ pszTimestamp=New York Times page1, Aug 1, 2011 President Obama said the accord w
 
 #these values must be with value 0x to the front to make hex format 
 #pbtc block.hashMerkleRoot value
-#block_hashMerkleRoot=0x9ea0663eefa0a654696367eb3497fc94d22161bbaf3fa4cfa13d8d6ee64fde3e
 block_hashMerkleRoot=0xa05302c98a5d93b2959b9dd8fc710e548949caac4a2e42faf93d7a84a512a24c
 
 #pbtc new genesisblock 
@@ -169,18 +168,23 @@ pscMessageStart3=219
 # larger than this number nBits value will be forced to value at least as big as Diff_post_triger
 # before this triger the difficulty will be around what it was at the genisis block of block_nBits settings
 # default is 0 that will disable this function and run normaly from block_nBits settings from genisis
-Diff_triger_block=999
+Diff_triger_block=11
 
 #this is the value that nBits will be forced to be as a minimum value after the Diff_triger_block number.
 # this value must be in decimal format same format as block_nBits.
 # to work with near difficulty of namecoin as parent merge mine would require 453237473, or 436940612 for bitcoin
 # just a bit bellow weeds = dDiff dec = 0.05 = nBits = 1d13ffec = 487849964
 # 1/4 diff of namecoin =  dDiff dec = 23509.0 nBits hex = 1b02c9a3 nBits dec = 453167523
-#Diff_post_triger=487849964
-Diff_post_triger=453167523
+Diff_post_triger=487849964
+
+
+#same as Diff_triger_block and Diff_post_triger with another set of values for a another block change.
+#less than namecoin I hope dDiff dec = 17000.0 nBits hex = 1b03dae1 nBits dec = 453237473
+Diff_triger_blockB=1510
+Diff_post_trigerB=453237473
 
 #block number at witch time we start to accept merge mining aux chain proof-of-work
-AuxPowStartBlock=1000
+AuxPowStartBlock=1500
 
 # this chain ID number as with bitcoin chainid=0  namecoin chainid=1, at this point I'm not sure if we should set to 1 or 2 or?
 OurChainID=2

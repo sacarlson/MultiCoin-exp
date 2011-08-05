@@ -734,6 +734,7 @@ int64 static GetBlockValue(int nHeight, int64 nFees)
     return nSubsidy + nFees;
 }
 
+
 unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
 {
     const int64 nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
@@ -763,6 +764,18 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
                 return GetArgIntxx(487587839,"-Diff_post_triger");
             }
             printf(" present target already bigger than: %s \n",CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_triger")).getuint256().ToString().c_str());
+        }
+        if (GetArgIntxx(0,"-Diff_triger_blockB") < pindexLast->nHeight)
+        {
+            printf(" Diff_triger_blockB < nHeights  with nHeights now at: %d \n",pindexLast->nHeight);
+            if (CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_trigerB")) < CBigNum().SetCompact(pindexLast->nBits))
+            {
+                printf(" Diff_post_trigerB > nBits detected so will override nBits value to: %d \n",GetArgIntxx(487587839,"-Diff_post_trigerB"));
+                printf(" present target is: %s \n",CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_trigerB")).getuint256().ToString().c_str());
+                // default value of post_triger here 487587839 is same as weeds nbits = 1d0fffff,  dDiff dec = 0.0624
+                return GetArgIntxx(487587839,"-Diff_post_trigerB");
+            }
+            printf(" present target already bigger than: %s \n",CBigNum().SetCompact(GetArgIntxx(487587839,"-Diff_post_trigerB")).getuint256().ToString().c_str());
         }
     }
 
@@ -1478,7 +1491,11 @@ bool CBlock::AcceptBlock()
     if (GetArgIntxx(0,"-check_block")>0)
     {
         if (nHeight == GetArgIntxx(0,"-check_block") && hash != uint256(mapArgs["-check_hash"]))
+        {
+            printf("should be hash = %s\n", hash.ToString().c_str());
+            printf("is check_hash = %s\n", uint256(mapArgs["-check_hash"]).ToString().c_str());
             return error("AcceptBlock() : rejected by checkpoint lockin at %d", nHeight);
+        }
     }
     // Write block to history file
     if (!CheckDiskSpace(::GetSerializeSize(*this, SER_DISK)))
