@@ -48,11 +48,10 @@ paytxfee=.001
 testnet_config=1
 
 #check_block is a block to verify the integrity up to this block number used with check_hash if not set it's not checked
-check_block=135
+check_block=130
 
 #check_hash is the hash value of the check_block number used to verify integrity of block chain
-#check_hash=0x00000002a86be57c214158099dc168b0c74540106b5f7408b4c9e4b3b41ad420 
-check_hash=0x0000000e9a0490f4ffc9a401d72e8b3d620f83fb122173f15df7838ee9835eff 
+check_hash=0x0000000936537ee015fd79063f5d2cfe1e42aa32dc6eec73a8c71252cf85b68a 
 
 #to enable scripts uncomment nonstandard here this overrides IsStandard() to return true
 nonstandard=1
