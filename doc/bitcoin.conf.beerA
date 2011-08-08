@@ -48,10 +48,12 @@ paytxfee=.001
 testnet_config=1
 
 #check_block is a block to verify the integrity up to this block number used with check_hash if not set it's not checked
-check_block=130
+#check_block=130
+check_block=340
 
 #check_hash is the hash value of the check_block number used to verify integrity of block chain
-check_hash=0x0000000936537ee015fd79063f5d2cfe1e42aa32dc6eec73a8c71252cf85b68a 
+#check_hash=0x0000000936537ee015fd79063f5d2cfe1e42aa32dc6eec73a8c71252cf85b68a 
+check_hash=0x0000000fead964d1e1a81a568f926b70ceb735072afb1602ac83abd0e44090ea
 
 #to enable scripts uncomment nonstandard here this overrides IsStandard() to return true
 nonstandard=1
@@ -179,11 +181,14 @@ Diff_post_triger=487849964
 
 #same as Diff_triger_block and Diff_post_triger with another set of values for a another block change.
 #less than namecoin I hope dDiff dec = 17000.0 nBits hex = 1b03dae1 nBits dec = 453237473
+#dDiff dec = 50.0 nBits hex = 1c051eb3 nBits dec = 470097587
+#Diff_triger_blockB=1510
+#Diff_post_trigerB=453237473
 Diff_triger_blockB=1510
-Diff_post_trigerB=453237473
+Diff_post_trigerB=470097587
 
 #block number at witch time we start to accept merge mining aux chain proof-of-work
-AuxPowStartBlock=1500
+AuxPowStartBlock=800
 
 # this chain ID number as with bitcoin chainid=0  namecoin chainid=1, at this point I'm not sure if we should set to 1 or 2 or?
 OurChainID=2
