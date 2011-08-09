@@ -254,7 +254,11 @@ bool AppInit2(int argc, char* argv[])
     fLogTimestamps = GetBoolArg("-logtimestamps");
     uAddressVersion = GetCharArg(ADDRESSVERSION,"-AddressVerson");
     if (mapArgs.count("-max_money"))
+    {
         SetMaxMoney(atoi(mapArgs["-max_money"]));
+        printf("MaxMoney now set to: %x hex  %ld dec\n",GetMaxMoney());
+        printf("GetMaxMoney/COIN = %x hex %ld dec \n",GetMaxMoney()/COIN);
+    }
 
     for (int i = 1; i < argc; i++)
         if (!IsSwitchChar(argv[i][0]))

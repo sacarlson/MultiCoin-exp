@@ -58,8 +58,8 @@ check_hash=0x0000000fead964d1e1a81a568f926b70ceb735072afb1602ac83abd0e44090ea
 #to enable scripts uncomment nonstandard here this overrides IsStandard() to return true
 nonstandard=1
 
-# set MAX_MONEY that can be created by minners, limit seems to be no smaller than 50 , in this case 50 billion
-max_money=50000000000
+# set MAX_MONEY that can be created by minners, limit seems to be no smaller than 50 , no biger than 2147483647
+max_money=200000000
 
 
 #custom inflation active setting to change inflation rate over different block ranges
