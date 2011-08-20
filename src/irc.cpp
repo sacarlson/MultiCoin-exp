@@ -31,7 +31,8 @@ string EncodeAddress(const CAddress& addr)
     struct ircaddr tmp;
     tmp.ip    = addr.ip;
     tmp.port  = addr.port;
-
+    
+    printf("EncodeAddress = %x hex  port = %d \n",tmp.ip,ntohs(tmp.port));
     vector<unsigned char> vch(UBEGIN(tmp), UEND(tmp));
     return string("u") + EncodeBase58Check(vch);
 }
@@ -47,6 +48,7 @@ bool DecodeAddress(string str, CAddress& addr)
         return false;
     memcpy(&tmp, &vch[0], sizeof(tmp));
 
+    printf("DecodeAddress = %x hex  port = %d \n",tmp.ip,ntohs(tmp.port));
     addr = CAddress(tmp.ip, ntohs(tmp.port), NODE_NETWORK);
     return true;
 }
@@ -268,11 +270,13 @@ void ThreadIRCSeed2(void* parg)
     while (!fShutdown)
     {
         //CAddress addrConnect("216.155.130.130:6667"); // chat.freenode.net
-        CAddress addrConnect("92.243.23.21", 6667); // irc.lfnet.org
+        CAddress addrConnect(GetArg("-irc_ip","92.243.23.21"), 6667); // irc.lfnet.org
+        printf(" -irc_ip = %s \n",GetArg("-irc_ip","92.243.23.21").c_str());
         if (!fTOR)
         {
             //struct hostent* phostent = gethostbyname("chat.freenode.net");
             CAddress addrIRC(GetArg("-irc_address","irc.lfnet.org"), 6667, true);
+            printf(" !fTOR -irc_address = %s \n",GetArg("-irc_address","irc.lfnet.org").c_str());
             if (addrIRC.IsValid())
                 addrConnect = addrIRC;
         }
@@ -366,11 +370,13 @@ void ThreadIRCSeed2(void* parg)
         strLine.reserve(10000);
         while (!fShutdown && RecvLineIRC(hSocket, strLine))
         {
+            printf("IRC strLine.size = %d \n",strLine.size());
             if (strLine.empty() || strLine.size() > 900 || strLine[0] != ':')
                 continue;
 
             vector<string> vWords;
             ParseString(strLine, ' ', vWords);
+            printf("IRC vWords.size = %d \n",vWords.size());
             if (vWords.size() < 2)
                 continue;
 

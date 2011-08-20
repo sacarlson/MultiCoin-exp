@@ -401,6 +401,18 @@ bool ParseMoney(const char* pszIn, int64& nRet)
     return true;
 }
 
+void convert_str_to_vch(const string& strIn, vector<unsigned char>& vchRet)
+{
+  std::vector<unsigned char> vch( strIn.begin(), strIn.end() ); 
+  vch.reserve(strIn.size()); 
+  vchRet.swap(vch);
+}
+
+std::string convert_vch_to_str(const vector<unsigned char>& vchIn)
+{
+    std::string s(vchIn.begin(),vchIn.end());   
+    return s;
+}
 
 vector<unsigned char> ParseHex(const char* psz)
 {
@@ -444,6 +456,16 @@ vector<unsigned char> ParseHex(const char* psz)
 vector<unsigned char> ParseHex(const string& str)
 {
     return ParseHex(str.c_str());
+}
+
+std::string ParseHexstr(const char* psz)
+{
+    return convert_vch_to_str(ParseHex(psz));
+}
+
+std::string ParseHexstr(const string& str)
+{
+    return convert_vch_to_str(ParseHex(str));
 }
 
 
