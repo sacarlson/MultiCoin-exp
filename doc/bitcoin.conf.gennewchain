@@ -69,8 +69,8 @@ block_nNonce=0
 #irc_ip=192.168.2.250:6667
 
 #pbtc irc address used in Tor  can be a dns lookupable address pointing to your irc server
-#irc_tor_address=irc.lfnet.org
-#irc_tor_address=irc.surething.biz
+#irc_address=irc.lfnet.org
+#irc_address=irc.surething.biz
 
 #COINBASE_MATURITY defaults to 100 if changed here will credit minned coins in this number of new blocks 
 # this feature is now disabled in this build until I figure out the changes made around it.

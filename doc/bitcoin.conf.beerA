@@ -40,7 +40,7 @@ WindowIcon=:icons/beer
 AddressVerson=242
 
 #only connect to standard ports assigned at port config or as assigned by testnet or mainnet defaults 
-standard_ports_only=1
+#standard_ports_only=1
 
 paytxfee=.001
 
@@ -135,8 +135,8 @@ irc_channel=beerA
 
 # IRC address used in Tor  can be a dns lookupable address pointing to your irc server
 # this seems to be the one that's being used not the above address
-#irc_tor_address=irc.surething.biz
-irc_tor_address=card.freenode.net
+#irc_address=irc.surething.biz
+irc_address=irc.lfnet.org
 
 #COINBASE_MATURITY defaults to 100 if changed here will credit minned coins in this number of new blocks 
 coinbase_maturity=12
@@ -151,7 +151,7 @@ coinbase_maturity=12
 #  testnet settings
 #\xfa\xbf\xb5\xda
 #  mainnet settings
-#{ 0xf9, 0xbe, 0xb4, 0xd9 }
+#\xf9\xbe\xb4\xd9
 #  weeds settings
 #\xf8\xbf\xb5\xda
 #  beerA settings
