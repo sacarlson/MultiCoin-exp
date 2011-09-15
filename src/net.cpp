@@ -69,15 +69,17 @@ int nConnectTimeout = 5000;
 CAddress addrProxy("127.0.0.1",9050);
 
 
-unsigned short GetSendPort()
-{
-    //return (unsigned short)(GetArg("-portsend", GetDefaultPort()));
-    return (unsigned short)(GetArg("-portsend", GetListenPort()));
-}
+
 
 unsigned short GetListenPort()
 {
     return (unsigned short)(GetArg("-port", GetDefaultPort()));
+}
+
+unsigned short GetSendPort()
+{
+    //return (unsigned short)(GetArg("-portsend", GetDefaultPort()));
+    return (unsigned short)(GetArg("-portsend", GetListenPort()));
 }
 
 void CNode::PushGetBlocks(CBlockIndex* pindexBegin, uint256 hashEnd)
