@@ -180,6 +180,7 @@ bool AppInit2(int argc, char* argv[])
             "  -addnode=<ip>    \t  "   + _("Add a node to connect to\n") +
             "  -connect=<ip>    \t\t  " + _("Connect only to the specified node\n") +
             "  -nolisten        \t  "   + _("Don't accept connections from outside\n") +
+            "  -hub=<n>         \t  "   + _("Enable hub mode (1-4)\n") +
 #ifdef USE_UPNP
 #if USE_UPNP
             "  -noupnp          \t  "   + _("Don't attempt to use UPnP to map the listening port\n") +
@@ -200,6 +201,7 @@ bool AppInit2(int argc, char* argv[])
             "  -rpcport=<port>  \t\t  " + _("Listen for JSON-RPC connections on <port> (default: 8332)\n") +
             "  -rpcallowip=<ip> \t\t  " + _("Allow JSON-RPC connections from specified IP address\n") +
             "  -rpcconnect=<ip> \t  "   + _("Send commands to node running on <ip> (default: 127.0.0.1)\n") +
+            "  -pollpidfile=<f> \t  "   + _("Support long polling\n") +
             "  -keypool=<n>     \t  "   + _("Set key pool size to <n> (default: 100)\n") +
             "  -rescan          \t  "   + _("Rescan the block chain for missing wallet transactions\n");
 
@@ -239,6 +241,9 @@ bool AppInit2(int argc, char* argv[])
         fServer = true;
     else
         fServer = GetBoolArg("-server");
+
+    strRPCUser = mapArgs["-rpcuser"];
+    strRPCPass = mapArgs["-rpcpassword"];
 
     /* force fServer when running without GUI */
 #ifndef GUI

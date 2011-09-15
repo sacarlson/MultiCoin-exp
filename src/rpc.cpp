@@ -2,6 +2,16 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
 
+// CAUTION: This is not the offical rpc.cpp from the official
+// bitcoin distribution. It has been modified by me
+// <davidjoelschwartz@gmail.com> to support multi-threaded RPC.
+// This is quick and dirty code, it may not work for you. No warranties
+// are expressed or implied. I made a best effort to improve the RPC
+// performance. This notification is for blame, not for credit and
+// may be removed if this change, or one similar, is accepted into the
+// main distribution. If this has helped you, please donate to:
+// 1H3STBxuzEHZQQD4hkjVE22TWTazcZzeBw
+
 #include "headers.h"
 #include "cryptopp/sha.h"
 #include "db.h"
@@ -19,6 +29,7 @@
 #include <boost/filesystem/fstream.hpp>
 typedef boost::asio::ssl::stream<boost::asio::ip::tcp::socket> SSLStream;
 #endif
+#define BOOST_SPIRIT_THREADSAFE
 #include "json/json_spirit_reader_template.h"
 #include "json/json_spirit_writer_template.h"
 #include "json/json_spirit_utils.h"
@@ -37,6 +48,7 @@ void ThreadRPCServer2(void* parg);
 typedef Value(*rpcfn_type)(const Array& params, bool fHelp);
 extern map<string, rpcfn_type> mapCallTable;
 
+void ThreadRPCServer3(void* parg);
 
 Object JSONRPCError(int code, const string& message)
 {
@@ -1386,6 +1398,65 @@ Value validateaddress(const Array& params, bool fHelp)
 }
 
 
+static boost::mutex mGetWork;
+static CReserveKey *reservekey = NULL;
+static CBlockIndex* pindexPrev;
+static CBlock* pblock;
+static map<uint256, pair<CBlock*, unsigned int> > mapNewBlock;
+static vector<CBlock*> vNewBlock;
+
+
+void GetWorkBlock(char *pmidstate, char *pdata, char *phash1, uint256 &hashTarget)
+{ // Fill the buffers with a correct work unit
+    boost::unique_lock<boost::mutex> lock(mGetWork);
+
+        static unsigned int nTransactionsUpdatedLast;
+        static int64 nStart;
+        static CBlock* pblock;
+
+    // Update block if needed
+    while (pindexPrev != pindexBest ||
+            (nTransactionsUpdated != nTransactionsUpdatedLast && GetTime() - nStart > 60))
+        {
+            if (pindexPrev != pindexBest)
+            {
+                // Deallocate old blocks since they're obsolete now
+                mapNewBlock.clear();
+                BOOST_FOREACH(CBlock* pblock, vNewBlock)
+                    delete pblock;
+                vNewBlock.clear();
+            }
+            nTransactionsUpdatedLast = nTransactionsUpdated;
+            pindexPrev = pindexBest;
+            nStart = GetTime();
+
+            // Create new block
+        if (reservekey == NULL)
+            reservekey = new CReserveKey(pwalletMain);
+        pblock = CreateNewBlock(*reservekey);
+        if (pblock == NULL)
+                throw JSONRPCError(-7, "Out of memory");
+
+            vNewBlock.push_back(pblock);
+        }
+
+        // Update nTime
+        pblock->nTime = max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
+        pblock->nNonce = 0;
+
+        // Update nExtraNonce
+        static unsigned int nExtraNonce = 0;
+        static int64 nPrevTime = 0;
+        IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, nPrevTime);
+
+        // Save
+        mapNewBlock[pblock->hashMerkleRoot] = make_pair(pblock, nExtraNonce);
+
+        // Prebuild hash buffers
+    FormatHashBuffers(pblock, pmidstate, pdata, phash1);
+    hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
+}
+
 Value getwork(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() > 1)
@@ -1404,64 +1475,21 @@ Value getwork(const Array& params, bool fHelp)
     if (IsInitialBlockDownload())
         throw JSONRPCError(-10, "Bitcoin is downloading blocks...");
 
-    static map<uint256, pair<CBlock*, unsigned int> > mapNewBlock;
-    static vector<CBlock*> vNewBlock;
-    static CReserveKey reservekey(pwalletMain);
-
     if (params.size() == 0)
     {
-        // Update block
-        static unsigned int nTransactionsUpdatedLast;
-        static CBlockIndex* pindexPrev;
-        static int64 nStart;
-        static CBlock* pblock;
-        if (pindexPrev != pindexBest ||
-            (nTransactionsUpdated != nTransactionsUpdatedLast && GetTime() - nStart > 60))
-        {
-            if (pindexPrev != pindexBest)
-            {
-                // Deallocate old blocks since they're obsolete now
-                mapNewBlock.clear();
-                BOOST_FOREACH(CBlock* pblock, vNewBlock)
-                    delete pblock;
-                vNewBlock.clear();
-            }
-            nTransactionsUpdatedLast = nTransactionsUpdated;
-            pindexPrev = pindexBest;
-            nStart = GetTime();
-
-            // Create new block
-            pblock = CreateNewBlock(reservekey);
-            if (!pblock)
-                throw JSONRPCError(-7, "Out of memory");
-            vNewBlock.push_back(pblock);
-        }
-
-        // Update nTime
-        pblock->nTime = max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
-        pblock->nNonce = 0;
-
-        // Update nExtraNonce
-        static unsigned int nExtraNonce = 0;
-        static int64 nPrevTime = 0;
-        IncrementExtraNonce(pblock, pindexPrev, nExtraNonce, nPrevTime);
-
-        // Save
-        mapNewBlock[pblock->hashMerkleRoot] = make_pair(pblock, nExtraNonce);
-
-        // Prebuild hash buffers
         char pmidstate[32];
         char pdata[128];
         char phash1[64];
-        FormatHashBuffers(pblock, pmidstate, pdata, phash1);
+        char hexbuf[512];
+        uint256 hashTarget;
 
-        uint256 hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
+        GetWorkBlock(pmidstate, pdata, phash1, hashTarget);
 
         Object result;
-        result.push_back(Pair("midstate", HexStr(BEGIN(pmidstate), END(pmidstate))));
-        result.push_back(Pair("data",     HexStr(BEGIN(pdata), END(pdata))));
-        result.push_back(Pair("hash1",    HexStr(BEGIN(phash1), END(phash1))));
-        result.push_back(Pair("target",   HexStr(BEGIN(hashTarget), END(hashTarget))));
+        result.push_back(Pair("midstate", ToHex(pmidstate, 32, hexbuf)));
+        result.push_back(Pair("data",     ToHex(pdata, 128, hexbuf)));
+        result.push_back(Pair("hash1",    ToHex(phash1, 64, hexbuf)));
+        result.push_back(Pair("target",   ToHex((const char *) &hashTarget, sizeof(hashTarget), hexbuf)));
         return result;
     }
     else
@@ -1476,6 +1504,9 @@ Value getwork(const Array& params, bool fHelp)
         for (int i = 0; i < 128/4; i++)
             ((unsigned int*)pdata)[i] = CryptoPP::ByteReverse(((unsigned int*)pdata)[i]);
 
+        // Get exclusive access to getwork structures
+        boost::unique_lock<boost::mutex> lock(mGetWork);
+
         // Get saved block
         if (!mapNewBlock.count(pdata->hashMerkleRoot))
             return false;
@@ -1487,8 +1518,38 @@ Value getwork(const Array& params, bool fHelp)
         pblock->vtx[0].vin[0].scriptSig = CScript() << pblock->nBits << CBigNum(nExtraNonce);
         pblock->hashMerkleRoot = pblock->BuildMerkleTree();
 
-        return CheckWork(pblock, *pwalletMain, reservekey);
+        return CheckWork(pblock, *pwalletMain, *reservekey);
     }
+}
+
+std::string FastGetWork(const std::string id)
+{ // bypass JSON in the most common case
+    if (vNodes.empty())
+        throw JSONRPCError(-9, "Bitcoin is not connected!");
+
+    if (IsInitialBlockDownload())
+        throw JSONRPCError(-10, "Bitcoin is downloading blocks...");
+
+    char pmidstate[32];
+    char pdata[128];
+    char phash1[64];
+    char hexbuf[512];
+    uint256 hashTarget;
+ 
+    GetWorkBlock(pmidstate, pdata, phash1, hashTarget);
+ 
+    std::string result = "{\"result\":{\"midstate\" : \"";
+    result += ToHex(pmidstate, 32, hexbuf);
+    result += "\",\"data\":\"";
+    result += ToHex(pdata, 128, hexbuf);
+    result += "\",\"hash1\":\"";
+    result += ToHex(phash1, 64, hexbuf);
+    result += "\",\"target\":\"";
+    result += ToHex((const char *) &hashTarget, sizeof(hashTarget), hexbuf);
+    result += "\"},\"error\":null,\"id\":\"";
+    result += id;
+    result += "\"}\n";
+    return result;
 }
 
 Value getworkaux(const Array& params, bool fHelp)
@@ -1906,6 +1967,7 @@ string HTTPPost(const string& strMsg, const map<string,string>& mapRequestHeader
       << "Host: 127.0.0.1\r\n"
       << "Content-Type: application/json\r\n"
       << "Content-Length: " << strMsg.size() << "\r\n"
+      << "Connection: close"
       << "Accept: application/json\r\n";
     BOOST_FOREACH(const PAIRTYPE(string, string)& item, mapRequestHeaders)
         s << item.first << ": " << item.second << "\r\n";
@@ -1927,7 +1989,7 @@ string rfc1123Time()
     return string(buffer);
 }
 
-static string HTTPReply(int nStatus, const string& strMsg)
+static string HTTPReply(int nStatus, const string& strMsg, bool keepalive)
 {
     if (nStatus == 401)
         return strprintf("HTTP/1.0 401 Authorization Required\r\n"
@@ -1946,30 +2008,31 @@ static string HTTPReply(int nStatus, const string& strMsg)
             "</HEAD>\r\n"
             "<BODY><H1>401 Unauthorized.</H1></BODY>\r\n"
             "</HTML>\r\n", rfc1123Time().c_str(), FormatFullVersion().c_str());
-    string strStatus;
-         if (nStatus == 200) strStatus = "OK";
-    else if (nStatus == 400) strStatus = "Bad Request";
-    else if (nStatus == 403) strStatus = "Forbidden";
-    else if (nStatus == 404) strStatus = "Not Found";
-    else if (nStatus == 500) strStatus = "Internal Server Error";
+    const char *cStatus;
+         if (nStatus == 200) cStatus = "OK";
+    else if (nStatus == 400) cStatus = "Bad Request";
+    else if (nStatus == 403) cStatus = "Forbidden";
+    else if (nStatus == 404) cStatus = "Not Found";
+    else if (nStatus == 500) cStatus = "Internal Server Error";
+    else cStatus = "";
     return strprintf(
             "HTTP/1.1 %d %s\r\n"
             "Date: %s\r\n"
-            "Connection: close\r\n"
+            "Connection: %s\r\n"
             "Content-Length: %d\r\n"
             "Content-Type: application/json\r\n"
             "Server: bitcoin-json-rpc/%s\r\n"
             "\r\n"
             "%s",
-        nStatus,
-        strStatus.c_str(),
+        nStatus, cStatus,
         rfc1123Time().c_str(),
+        keepalive ? "keep-alive" : "close",
         strMsg.size(),
         FormatFullVersion().c_str(),
         strMsg.c_str());
 }
 
-int ReadHTTPStatus(std::basic_istream<char>& stream)
+int ReadHTTPStatus(std::basic_istream<char>& stream, int &proto)
 {
     string str;
     getline(stream, str);
@@ -1977,6 +2040,10 @@ int ReadHTTPStatus(std::basic_istream<char>& stream)
     boost::split(vWords, str, boost::is_any_of(" "));
     if (vWords.size() < 2)
         return 500;
+    proto = 0;
+    const char *ver = strstr(str.c_str(), "HTTP/1.");
+    if (ver != NULL)
+        proto = atoi(ver+7);
     return atoi(vWords[1].c_str());
 }
 
@@ -2011,7 +2078,8 @@ int ReadHTTP(std::basic_istream<char>& stream, map<string, string>& mapHeadersRe
     strMessageRet = "";
 
     // Read status
-    int nStatus = ReadHTTPStatus(stream);
+    int nProto;
+    int nStatus = ReadHTTPStatus(stream, nProto);
 
     // Read header
     int nLen = ReadHTTPHeader(stream, mapHeadersRet);
@@ -2024,6 +2092,16 @@ int ReadHTTP(std::basic_istream<char>& stream, map<string, string>& mapHeadersRe
         vector<char> vch(nLen);
         stream.read(&vch[0], nLen);
         strMessageRet = string(vch.begin(), vch.end());
+    }
+
+    string sConHdr=mapHeadersRet["connection"];
+
+    if ( (sConHdr != "close") && (sConHdr != "keep-alive") )
+    {
+        if(nProto >= 1)
+            mapHeadersRet["connection"]="keep-alive";
+        else
+            mapHeadersRet["connection"]="close";
     }
 
     return nStatus;
@@ -2048,23 +2126,6 @@ string EncodeBase64(string s)
     return result;
 }
 
-string DecodeBase64(string s)
-{
-    BIO *b64, *bmem;
-
-    char* buffer = static_cast<char*>(calloc(s.size(), sizeof(char)));
-
-    b64 = BIO_new(BIO_f_base64());
-    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-    bmem = BIO_new_mem_buf(const_cast<char*>(s.c_str()), s.size());
-    bmem = BIO_push(b64, bmem);
-    BIO_read(bmem, buffer, s.size());
-    BIO_free_all(bmem);
-
-    string result(buffer);
-    free(buffer);
-    return result;
-}
 
 bool HTTPAuthorized(map<string, string>& mapHeaders)
 {
@@ -2078,7 +2139,7 @@ bool HTTPAuthorized(map<string, string>& mapHeaders)
         return false;
     string strUser = strUserPass.substr(0, nColon);
     string strPassword = strUserPass.substr(nColon+1);
-    return (strUser == mapArgs["-rpcuser"] && strPassword == mapArgs["-rpcpassword"]);
+    return (strUser == strRPCUser && strPassword == strRPCPass);
 }
 
 //
@@ -2120,7 +2181,7 @@ void ErrorReply(std::ostream& stream, const Object& objError, const Value& id)
     if (code == -32600) nStatus = 400;
     else if (code == -32601) nStatus = 404;
     string strReply = JSONRPCReply(Value::null, objError, id);
-    stream << HTTPReply(nStatus, strReply) << std::flush;
+    stream << HTTPReply(nStatus, strReply, false) << std::flush;
 }
 
 bool ClientAllowed(const string& strAddress)
@@ -2187,6 +2248,28 @@ private:
     SSLStream& stream;
 };
 #endif
+
+class AcceptedConnection
+{
+    public:
+#ifdef USE_SSL
+    SSLStream sslStream;
+    SSLIOStreamDevice d;
+    iostreams::stream<SSLIOStreamDevice> stream;
+#else
+    ip::tcp::iostream stream;
+#endif
+
+    ip::tcp::endpoint peer;
+
+#ifdef USE_SSL
+    AcceptedConnection(asio::io_service &io_service, ssl::context &context,
+     bool fUseSSL) : sslStream(io_service, context), d(sslStream, fUseSSL),
+     stream(d) { ; }
+#else
+    AcceptedConnection(void) { ; }
+#endif
+};
 
 void ThreadRPCServer(void* parg)
 {
@@ -2263,49 +2346,64 @@ void ThreadRPCServer2(void* parg)
     {
         // Accept connection
 #ifdef USE_SSL
-        SSLStream sslStream(io_service, context);
-        SSLIOStreamDevice d(sslStream, fUseSSL);
-        iostreams::stream<SSLIOStreamDevice> stream(d);
+        AcceptedConnection *conn=new AcceptedConnection(io_service, context, fUseSSL);
 #else
-        ip::tcp::iostream stream;
+        AcceptedConnection *conn=new AcceptedConnection();
 #endif
 
-        ip::tcp::endpoint peer;
         vnThreadsRunning[4]--;
 #ifdef USE_SSL
-        acceptor.accept(sslStream.lowest_layer(), peer);
+        acceptor.accept(conn->sslStream.lowest_layer(), conn->peer);
 #else
-        acceptor.accept(*stream.rdbuf(), peer);
+        acceptor.accept(*conn->stream.rdbuf(), conn->peer);
 #endif
         vnThreadsRunning[4]++;
+
         if (fShutdown)
+        {
+            delete conn;
             return;
+        }
 
         // Restrict callers by IP
-        if (!ClientAllowed(peer.address().to_string()))
+        if (!ClientAllowed(conn->peer.address().to_string()))
         {
-            // Only send a 403 if we're not using SSL to prevent a DoS during the SSL handshake.
+            // Only send a 403 if we're not using SSL to prevent a DoS during 
             if (!fUseSSL)
-                stream << HTTPReply(403, "") << std::flush;
-            continue;
+                conn->stream << HTTPReply(403, "", false) << std::flush;
+            delete conn;
+        }
+        else
+            CreateThread(ThreadRPCServer3, (void *) conn);
+        }
+}
+
+void ThreadRPCServer3(void* parg)
+{
+    IMPLEMENT_RANDOMIZE_STACK(ThreadRPCServer3(parg));
+    ++vaMultiThreads1;
+    AcceptedConnection *conn=(AcceptedConnection *) parg;
+
+    bool fRun = true;
+    loop
+    {
+        if (fShutdown || !fRun)
+        {
+           conn->stream.close();
+           delete conn;
+           --vaMultiThreads1;
+           return;
         }
 
         map<string, string> mapHeaders;
         string strRequest;
-
-        boost::thread api_caller(ReadHTTP, boost::ref(stream), boost::ref(mapHeaders), boost::ref(strRequest));
-        if (!api_caller.timed_join(boost::posix_time::seconds(GetArg("-rpctimeout", 30))))
-        {   // Timed out:
-            acceptor.cancel();
-            printf("ThreadRPCServer ReadHTTP timeout\n");
-            continue;
-        }
+        ReadHTTP(conn->stream, mapHeaders, strRequest);
 
         // Check authorization
         if (mapHeaders.count("authorization") == 0)
         {
-            stream << HTTPReply(401, "") << std::flush;
-            continue;
+            conn->stream << HTTPReply(401, "", false) << std::flush;
+            break;
         }
         if (!HTTPAuthorized(mapHeaders))
         {
@@ -2313,9 +2411,38 @@ void ThreadRPCServer2(void* parg)
             if (mapArgs["-rpcpassword"].size() < 15)
                 Sleep(50);
 
-            stream << HTTPReply(401, "") << std::flush;
+            conn->stream << HTTPReply(401, "", false) << std::flush;
             printf("ThreadRPCServer incorrect password attempt\n");
+            break;
+        }
+        if (mapHeaders["connection"] == "close")
+            fRun = false;
+
+        if ((strRequest.find("\"getwork\"") != std::string::npos) && strRequest.find("[]") != std::string::npos)
+        { // This is imperfect code
+            std::string id;
+            size_t p = strRequest.find("\"id\":\"");
+            if (p != std::string::npos)
+            {
+                size_t ep = strRequest.find("\"", p+6);
+                id = strRequest.substr(p+6, p+ep);
+            }
+            try
+            {
+                conn->stream << HTTPReply(200, FastGetWork(id), fRun) << std::flush;
+            }
+            catch (std::exception& e)
+            {
+                    ErrorReply(conn->stream, JSONRPCError(-1, e.what()), id);
+                    fRun = false;
+            }
+            catch (Object& e)
+            {
+                    ErrorReply(conn->stream, e, id);
+                    fRun = false;
+            }
             continue;
+            
         }
 
         Value id = Value::null;
@@ -2331,6 +2458,7 @@ void ThreadRPCServer2(void* parg)
             id = find_value(request, "id");
 
             // Parse method
+            Value valParams = find_value(request, "params");
             Value valMethod = find_value(request, "method");
             if (valMethod.type() == null_type)
                 throw JSONRPCError(-32600, "Missing method");
@@ -2340,9 +2468,29 @@ void ThreadRPCServer2(void* parg)
 
             if (strMethod != "getwork" && strMethod != "getworkaux" && strMethod != "getauxblock" && strMethod != "buildmerkletree")
                 printf("ThreadRPCServer method=%s\n", strMethod.c_str());
+            else
+            { // is a getwork request
+               if( (valParams.type() == array_type) && valParams.get_array().size() == 0 )
+               {
+                try
+                {
+                    conn->stream << HTTPReply(200, FastGetWork(id.type()==str_type ? id.get_str() : ""), fRun) << std::flush;
+                }
+                catch (std::exception& e)
+                {
+                        ErrorReply(conn->stream, JSONRPCError(-1, e.what()), id);
+                        fRun = false;
+                }
+                catch (Object& e)
+                {
+                        ErrorReply(conn->stream, e, id);
+                        fRun = false;
+                }
+                continue;
+               } 
+            }
 
             // Parse params
-            Value valParams = find_value(request, "params");
             Array params;
             if (valParams.type() == array_type)
                 params = valParams.get_array();
@@ -2368,22 +2516,32 @@ void ThreadRPCServer2(void* parg)
 
                 // Send reply
                 string strReply = JSONRPCReply(result, Value::null, id);
-                stream << HTTPReply(200, strReply) << std::flush;
+                conn->stream << HTTPReply(200, strReply, fRun) << std::flush;
             }
             catch (std::exception& e)
             {
-                ErrorReply(stream, JSONRPCError(-1, e.what()), id);
+                ErrorReply(conn->stream, JSONRPCError(-1, e.what()), id);
+                fRun = false;
+            }
+            catch (Object& e)
+            {
+                ErrorReply(conn->stream, e, id);
+                fRun = false;
             }
         }
         catch (Object& objError)
         {
-            ErrorReply(stream, objError, id);
+            ErrorReply(conn->stream, objError, id);
+            break;
         }
         catch (std::exception& e)
         {
-            ErrorReply(stream, JSONRPCError(-32700, e.what()), id);
+            ErrorReply(conn->stream, JSONRPCError(-32700, e.what()), id);
+            break;
         }
     }
+    delete conn;
+    --vaMultiThreads1;
 }
 
 
@@ -2391,7 +2549,7 @@ void ThreadRPCServer2(void* parg)
 
 Object CallRPC(const string& strMethod, const Array& params)
 {
-    if (mapArgs["-rpcuser"] == "" && mapArgs["-rpcpassword"] == "")
+    if (strRPCUser == "" && strRPCPass == "")
         throw runtime_error(strprintf(
             _("You must set rpcpassword=<password> in the configuration file:\n%s\n"
               "If the file does not exist, create it with owner-readable-only file permissions."),
@@ -2419,7 +2577,7 @@ Object CallRPC(const string& strMethod, const Array& params)
 
 
     // HTTP basic authentication
-    string strUserPass64 = EncodeBase64(mapArgs["-rpcuser"] + ":" + mapArgs["-rpcpassword"]);
+    string strUserPass64 = EncodeBase64(strRPCUser + ":" + strRPCPass);
     map<string, string> mapRequestHeaders;
     mapRequestHeaders["Authorization"] = string("Basic ") + strUserPass64;
 

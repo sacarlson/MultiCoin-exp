@@ -1,0 +1,1275 @@
+diff -bup orig/init.cpp new/init.cpp
+--- orig/init.cpp	2011-08-06 01:43:46.535713123 -0700
++++ new/init.cpp	2011-08-06 05:17:37.099702719 -0700
+@@ -178,6 +178,7 @@ bool AppInit2(int argc, char* argv[])
+             "  -addnode=<ip>    \t  "   + _("Add a node to connect to\n") +
+             "  -connect=<ip>    \t\t  " + _("Connect only to the specified node\n") +
+             "  -nolisten        \t  "   + _("Don't accept connections from outside\n") +
++            "  -hub=<n>         \t  "   + _("Enable hub mode (1-4)\n") +
+ #ifdef USE_UPNP
+ #if USE_UPNP
+             "  -noupnp          \t  "   + _("Don't attempt to use UPnP to map the listening port\n") +
+@@ -198,6 +199,7 @@ bool AppInit2(int argc, char* argv[])
+             "  -rpcport=<port>  \t\t  " + _("Listen for JSON-RPC connections on <port> (default: 8332)\n") +
+             "  -rpcallowip=<ip> \t\t  " + _("Allow JSON-RPC connections from specified IP address\n") +
+             "  -rpcconnect=<ip> \t  "   + _("Send commands to node running on <ip> (default: 127.0.0.1)\n") +
++            "  -pollpidfile=<f> \t  "   + _("Support long polling\n") +
+             "  -keypool=<n>     \t  "   + _("Set key pool size to <n> (default: 100)\n") +
+             "  -rescan          \t  "   + _("Rescan the block chain for missing wallet transactions\n");
+ 
+@@ -238,6 +240,9 @@ bool AppInit2(int argc, char* argv[])
+     else
+         fServer = GetBoolArg("-server");
+ 
++    strRPCUser = mapArgs["-rpcuser"];
++    strRPCPass = mapArgs["-rpcpassword"];
++
+     /* force fServer when running without GUI */
+ #ifndef GUI
+     fServer = true;
+diff -bup orig/main.cpp new/main.cpp
+--- orig/main.cpp	2011-08-06 01:43:46.537713119 -0700
++++ new/main.cpp	2011-08-06 05:17:37.100702716 -0700
+@@ -1111,6 +1111,7 @@ bool static Reorganize(CTxDB& txdb, CBlo
+ bool CBlock::SetBestChain(CTxDB& txdb, CBlockIndex* pindexNew)
+ {
+     uint256 hash = GetHash();
++    bool lp = false;
+ 
+     txdb.TxnBegin();
+     if (pindexGenesisBlock == NULL && hash == hashGenesisBlock)
+@@ -1150,9 +1151,10 @@ bool CBlock::SetBestChain(CTxDB& txdb, C
+         }
+     }
+ 
+-    // Update best block in wallet (so we can detect restored wallets)
+     if (!IsInitialBlockDownload())
+     {
++        lp = true;
++        // Update best block in wallet (so we can detect restored wallets)
+         const CBlockLocator locator(pindexNew);
+         ::SetBestChain(locator);
+     }
+@@ -1166,6 +1168,23 @@ bool CBlock::SetBestChain(CTxDB& txdb, C
+     nTransactionsUpdated++;
+     printf("SetBestChain: new best=%s  height=%d  work=%s\n", hashBestChain.ToString().substr(0,20).c_str(), nBestHeight, bnBestChainWork.ToString().c_str());
+ 
++    if (lp)
++    {
++        // Support long polling
++        string lp_pid = mapArgs["-pollpidfile"];
++        if(lp_pid != "")
++        {
++            FILE *pidFile = fopen(lp_pid.c_str(), "r");
++            if(pidFile!=NULL)
++            {
++                int pid=0;
++                if ((fscanf(pidFile, "%d", &pid) == 1) && (pid > 1))
++                    kill((pid_t) pid, SIGUSR1);
++                fclose(pidFile);
++            }
++        }
++    }
++
+     return true;
+ }
+ 
+@@ -2826,14 +2845,14 @@ CBlock* CreateNewBlock(CReserveKey& rese
+ 
+ 
+ void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& nExtraNonce, int64& nPrevTime)
+-{
+-    // Update nExtraNonce
+-    int64 nNow = max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
+-    if (++nExtraNonce >= 0x7f && nNow > nPrevTime+1)
++{ // Fix from Luke Dash Jr
++    static uint256 hashPrevBlock;
++    if (hashPrevBlock != pblock->hashPrevBlock)
+     {
+-        nExtraNonce = 1;
+-        nPrevTime = nNow;
++        nExtraNonce = 0;
++        hashPrevBlock = pblock->hashPrevBlock;
+     }
++    ++nExtraNonce;   
+     pblock->vtx[0].vin[0].scriptSig = CScript() << pblock->nBits << CBigNum(nExtraNonce);
+     pblock->hashMerkleRoot = pblock->BuildMerkleTree();
+ }
+@@ -2918,7 +2937,6 @@ bool CheckWork(CBlock* pblock, CWallet& 
+             return error("BitcoinMiner : ProcessBlock, block not accepted");
+     }
+ 
+-    Sleep(2000);
+     return true;
+ }
+ 
+diff -bup orig/net.cpp new/net.cpp
+--- orig/net.cpp	2011-08-06 01:43:46.537713119 -0700
++++ new/net.cpp	2011-08-06 05:17:37.100702716 -0700
+@@ -25,9 +25,42 @@
+ #include <miniupnpc/upnperrors.h>
+ #endif
+ 
++// CAUTION: This is not the offical net.cpp from the official
++// bitcoin distribution. It has been modified by me
++// <DavidJoelSchwartz@gmail.com> to support 'hub' modes.
++// This is quick and dirty code, it may not work for you. No warranties
++// are expressed or implied. I made a best effort to improve the RPC
++// performance. This notification is for blame, not for credit and
++// may be removed if this change, or one similar, is accepted into the
++// main distribution. If this has helped you, please donate to:
++// 1H3STBxuzEHZQQD4hkjVE22TWTazcZzeBw
++
+ using namespace std;
+ using namespace boost;
+ 
++
++#define HM_MAX_OUTBOUND 0
++#define HM_MAX_TOTAL    1
++#define HM_IP_MASK      2
++#define HM_MULTITHREAD  3
++static int nHubMode = 0;
++const unsigned HubModes[5][4]=
++{ // outbound connections, total connections, IP mask, multithreaded connect
++ {   8,  125, 0x0000ffff, 0 }, // Normal mode
++ {  16,  200, 0x0000ffff, 0 }, // Small hub mode
++ {  32,  384, 0x00ffffff, 1 }, // Medium hub mode
++ {  32,  640, 0x00ffffff, 1 }, // Large hub mode
++ {  32, 1536, 0xffffffff, 1 }  // Largest hub mode
++};
++
++#if defined(FD_SETSIZE) && (FD_SETSIZE<1600)
++#if FD_SETSIZE<1024
++#warning This build will not be able to run at high hub levels
++#else
++#warning This build will not be able to run at hub mode 4
++#endif
++#endif
++
+ static const int MAX_OUTBOUND_CONNECTIONS = 8;
+ 
+ void ThreadMessageHandler2(void* parg);
+@@ -52,6 +85,7 @@ CAddress addrLocalHost("0.0.0.0", 0, fal
+ CNode* pnodeLocalHost = NULL;
+ uint64 nLocalHostNonce = 0;
+ array<int, 10> vnThreadsRunning;
++boost::detail::atomic_count vaMultiThreads0(0), vaMultiThreads1(0);
+ SOCKET hListenSocket = INVALID_SOCKET;
+ 
+ vector<CNode*> vNodes;
+@@ -68,6 +102,10 @@ int fUseProxy = false;
+ int nConnectTimeout = 5000;
+ CAddress addrProxy("127.0.0.1",9050);
+ 
++// Work Notification
++boost::mutex mWorkNotification;
++boost::condition_variable cvWorkNotification;
++bool fWorkFound;
+ 
+ 
+ 
+@@ -867,6 +905,9 @@ void ThreadSocketHandler2(void* parg)
+         //
+         if (hListenSocket != INVALID_SOCKET && FD_ISSET(hListenSocket, &fdsetRecv))
+         {
++            int iAcceptCount = 4;
++            do
++            {
+             struct sockaddr_in sockaddr;
+             socklen_t len = sizeof(sockaddr);
+             SOCKET hSocket = accept(hListenSocket, (struct sockaddr*)&sockaddr, &len);
+@@ -879,10 +920,11 @@ void ThreadSocketHandler2(void* parg)
+                     nInbound++;
+             if (hSocket == INVALID_SOCKET)
+             {
++                    iAcceptCount=0;
+                 if (WSAGetLastError() != WSAEWOULDBLOCK)
+                     printf("socket error accept failed: %d\n", WSAGetLastError());
+             }
+-            else if (nInbound >= GetArg("-maxconnections", 125) - MAX_OUTBOUND_CONNECTIONS)
++                else if (nInbound >= GetArg("-maxconnections", HubModes[nHubMode][HM_MAX_TOTAL]) - HubModes[nHubMode][HM_MAX_OUTBOUND])
+             {
+                 closesocket(hSocket);
+             }
+@@ -894,6 +936,7 @@ void ThreadSocketHandler2(void* parg)
+                 CRITICAL_BLOCK(cs_vNodes)
+                     vNodes.push_back(pnode);
+             }
++            } while (0 < --iAcceptCount);
+         }
+ 
+ 
+@@ -907,10 +950,18 @@ void ThreadSocketHandler2(void* parg)
+             BOOST_FOREACH(CNode* pnode, vNodesCopy)
+                 pnode->AddRef();
+         }
++        bool fGotData = false;
+         BOOST_FOREACH(CNode* pnode, vNodesCopy)
+         {
+             if (fShutdown)
++            {
++                CRITICAL_BLOCK(cs_vNodes)
++                {
++                    BOOST_FOREACH(CNode* pnode, vNodesCopy)
++                        pnode->Release();
++                }
+                 return;
++            }
+ 
+             //
+             // Receive
+@@ -938,6 +989,8 @@ void ThreadSocketHandler2(void* parg)
+                             vRecv.resize(nPos + nBytes);
+                             memcpy(&vRecv[nPos], pchBuf, nBytes);
+                             pnode->nLastRecv = GetTime();
++                            pnode->fNeedProcess = true;
++                            fGotData = true;
+                         }
+                         else if (nBytes == 0)
+                         {
+@@ -998,6 +1051,14 @@ void ThreadSocketHandler2(void* parg)
+                 }
+             }
+ 
++            if (fGotData)
++            {
++                mWorkNotification.lock();
++                fWorkFound = true;
++                mWorkNotification.unlock();
++                cvWorkNotification.notify_one();
++            }
++
+             //
+             // Inactivity checking
+             //
+@@ -1028,7 +1089,7 @@ void ThreadSocketHandler2(void* parg)
+                 pnode->Release();
+         }
+ 
+-        Sleep(10);
++        Sleep(5);
+     }
+ }
+ 
+@@ -1226,6 +1287,15 @@ unsigned int pnSeed[] =
+ };
+ 
+ 
++void ONCThread(void *parg)
++{ // Open a network connection in a thread
++    IMPLEMENT_RANDOMIZE_STACK(ONCThread(parg));
++    CAddress *addr=(CAddress *) parg;
++    ++vaMultiThreads0;
++    OpenNetworkConnection(*addr);
++    --vaMultiThreads0;
++    delete addr;
++}
+ 
+ void ThreadOpenConnections(void* parg)
+ {
+@@ -1250,6 +1320,31 @@ void ThreadOpenConnections2(void* parg)
+ {
+     printf("ThreadOpenConnections started\n");
+ 
++    // Determine and validate configured hub mode
++    string sHubMode=GetArg("-hub", "0");
++    int nHM=atoi(sHubMode);
++    if ((nHM >= 0) && (nHM <= 4))
++        nHubMode = nHM;
++    if( ( sizeof(fd_set) * 8 ) < ( HubModes[nHubMode][HM_MAX_TOTAL] + 32 ) )
++    {
++        fShutdown = true;
++        printf("*** Unable to support requested hub mode due to compilation flags\n");
++        CreateThread(Shutdown, NULL);
++        return;
++    }
++
++#ifdef RLIMIT_NOFILE
++    struct rlimit srLimit;
++    if ( (getrlimit(RLIMIT_NOFILE, &srLimit) == 0) &&
++         (srLimit.rlim_cur < ( HubModes[nHubMode][HM_MAX_TOTAL] + 32 ) ) )
++    {
++        fShutdown = true;
++        printf("*** Unable to support requested hub mode due to resource limit\n");
++        CreateThread(Shutdown, NULL);
++        return;
++    }
++#endif
++
+     // Connect to specific addresses
+     if (mapArgs.count("-connect"))
+     {
+@@ -1291,8 +1386,6 @@ void ThreadOpenConnections2(void* parg)
+     loop
+     {
+         // Limit outbound connections
+-        vnThreadsRunning[1]--;
+-        Sleep(500);
+         loop
+         {
+             int nOutbound = 0;
+@@ -1300,24 +1393,29 @@ void ThreadOpenConnections2(void* parg)
+                 BOOST_FOREACH(CNode* pnode, vNodes)
+                     if (!pnode->fInbound)
+                         nOutbound++;
+-            int nMaxOutboundConnections = MAX_OUTBOUND_CONNECTIONS;
+-            nMaxOutboundConnections = min(nMaxOutboundConnections, (int)GetArg("-maxconnections", 125));
++            int nMaxOutboundConnections = HubModes[nHubMode][HM_MAX_OUTBOUND];
++            nMaxOutboundConnections = min(nMaxOutboundConnections, (int)GetArg("-maxconnections", nMaxOutboundConnections));
++            int nSleepTime = 5000;
+             if (nOutbound < nMaxOutboundConnections)
+-                break;
+-            Sleep(2000);
+-            if (fShutdown)
+-                return;
+-        }
++                nSleepTime = 500;
++            vnThreadsRunning[1]--;
++            Sleep(nSleepTime);
+         vnThreadsRunning[1]++;
+         if (fShutdown)
+             return;
++            if (nOutbound < nMaxOutboundConnections)
++                break;
++        }
++        
++        int64 nNow = GetTime();
++        int64 nANow = GetAdjustedTime();
+ 
+         CRITICAL_BLOCK(cs_mapAddresses)
+         {
+             // Add seed nodes if IRC isn't working
+             static bool fSeedUsed;
+             bool fTOR = (fUseProxy && addrProxy.port == htons(9050));
+-            if (mapAddresses.empty() && (GetTime() - nStart > 60 || fTOR) && !fTestNet)
++            if (mapAddresses.empty() && (nNow - nStart > 60 || fTOR) && !fTestNet)
+             {
+                 for (int i = 0; i < ARRAYLEN(pnSeed); i++)
+                 {
+@@ -1338,7 +1436,7 @@ void ThreadOpenConnections2(void* parg)
+                 static int64 nSeedDisconnected;
+                 if (nSeedDisconnected == 0)
+                 {
+-                    nSeedDisconnected = GetTime();
++                    nSeedDisconnected = nNow;
+                     CRITICAL_BLOCK(cs_vNodes)
+                         BOOST_FOREACH(CNode* pnode, vNodes)
+                             if (setSeed.count(pnode->addr.ip))
+@@ -1346,7 +1444,7 @@ void ThreadOpenConnections2(void* parg)
+                 }
+ 
+                 // Keep setting timestamps to 0 so they won't reconnect
+-                if (GetTime() - nSeedDisconnected < 60 * 60)
++                if (nNow - nSeedDisconnected < 60 * 60)
+                 {
+                     BOOST_FOREACH(PAIRTYPE(const vector<unsigned char>, CAddress)& item, mapAddresses)
+                     {
+@@ -1367,22 +1465,22 @@ void ThreadOpenConnections2(void* parg)
+         CAddress addrConnect;
+         int64 nBest = INT64_MIN;
+ 
+-        // Only connect to one address per a.b.?.? range.
++        // Only connect to one address per IP block.
+         // Do this here so we don't have to critsect vNodes inside mapAddresses critsect.
+         set<unsigned int> setConnected;
+         CRITICAL_BLOCK(cs_vNodes)
+             BOOST_FOREACH(CNode* pnode, vNodes)
+-                setConnected.insert(pnode->addr.ip & 0x0000ffff);
++                setConnected.insert(pnode->addr.ip & HubModes[nHubMode][HM_IP_MASK]);
+ 
+         CRITICAL_BLOCK(cs_mapAddresses)
+         {
+             BOOST_FOREACH(const PAIRTYPE(vector<unsigned char>, CAddress)& item, mapAddresses)
+             {
+                 const CAddress& addr = item.second;
+-                if (!addr.IsIPv4() || !addr.IsValid() || setConnected.count(addr.ip & 0x0000ffff))
++                if (!addr.IsIPv4() || !addr.IsValid() || setConnected.count(addr.ip & HubModes[nHubMode][HM_IP_MASK]))
+                     continue;
+-                int64 nSinceLastSeen = GetAdjustedTime() - addr.nTime;
+-                int64 nSinceLastTry = GetAdjustedTime() - addr.nLastTry;
++                int64 nSinceLastSeen = nANow - addr.nTime;
++                int64 nSinceLastTry = nANow - addr.nLastTry;
+ 
+                 // Randomize the order in a deterministic way, putting the standard port first
+                 int64 nRandomizer = (uint64)(nStart * 4951 + addr.nLastTry * 9567851 + addr.ip * 7789) % (2 * 60 * 60);
+@@ -1430,7 +1528,16 @@ void ThreadOpenConnections2(void* parg)
+         }
+ 
+         if (addrConnect.IsValid())
++        {
++            if (HubModes[nHubMode][HM_MULTITHREAD]==0)
++            {
++                ++vaMultiThreads0;
+             OpenNetworkConnection(addrConnect);
++                --vaMultiThreads0;
++            }
++            else
++                CreateThread(ONCThread, new CAddress(addrConnect));
++        }
+     }
+ }
+ 
+@@ -1444,9 +1551,9 @@ bool OpenNetworkConnection(const CAddres
+     if (addrConnect.ip == addrLocalHost.ip || !addrConnect.IsIPv4() || FindNode(addrConnect.ip))
+         return false;
+ 
+-    vnThreadsRunning[1]--;
++    --vaMultiThreads0;
+     CNode* pnode = ConnectNode(addrConnect);
+-    vnThreadsRunning[1]++;
++    ++vaMultiThreads0;
+     if (fShutdown)
+         return false;
+     if (!pnode)
+@@ -1496,6 +1603,10 @@ void ThreadMessageHandler2(void* parg)
+                 pnode->AddRef();
+         }
+ 
++        mWorkNotification.lock();
++        fWorkFound = false;
++        mWorkNotification.unlock();
++
+         // Poll the connected nodes for messages
+         CNode* pnodeTrickle = NULL;
+         if (!vNodesCopy.empty())
+@@ -1504,7 +1615,14 @@ void ThreadMessageHandler2(void* parg)
+         {
+             // Receive messages
+             TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
++            {
++                if (pnode->fNeedProcess)
++                {
++                    pnode->fNeedProcess = false;
+                 ProcessMessages(pnode);
++                }
++            }
++                    
+             if (fShutdown)
+                 return;
+ 
+@@ -1524,8 +1642,15 @@ void ThreadMessageHandler2(void* parg)
+         // Wait and allow messages to bunch up.
+         // Reduce vnThreadsRunning so StopNode has permission to exit while
+         // we're sleeping, but we must always check fShutdown after doing this.
++
+         vnThreadsRunning[2]--;
+-        Sleep(100);
++        { // CAUTION: Raising the delay will slow connection accept
++            boost::posix_time::time_duration wait_duration = boost::posix_time::millisec(250);
++            boost::unique_lock<boost::mutex> lock(mWorkNotification);
++            if(!fWorkFound)
++                cvWorkNotification.timed_wait(lock, wait_duration);
++        }
++            
+         if (fRequestShutdown)
+             Shutdown(NULL);
+         vnThreadsRunning[2]++;
+@@ -1700,7 +1825,8 @@ void StartNode(void* parg)
+         printf("Error: CreateThread(ThreadIRCSeed) failed\n");
+ 
+     // Send and receive from sockets, accept connections
+-    pthread_t hThreadSocketHandler = CreateThread(ThreadSocketHandler, NULL, true);
++    if (!CreateThread(ThreadSocketHandler, NULL))
++        printf("Error: CreateThread(ThreadSocketHandler) failed\n");
+ 
+     // Initiate outbound connections
+     if (!CreateThread(ThreadOpenConnections, NULL))
+@@ -1720,7 +1846,8 @@ bool StopNode()
+     fShutdown = true;
+     nTransactionsUpdated++;
+     int64 nStart = GetTime();
+-    while (vnThreadsRunning[0] > 0 || vnThreadsRunning[2] > 0 || vnThreadsRunning[3] > 0 || vnThreadsRunning[4] > 0
++    while (vnThreadsRunning[0] > 0 || vnThreadsRunning[2] > 0 || vnThreadsRunning[3] > 0 || vnThreadsRunning[4] > 0 ||
++     vaMultiThreads0 > 0 || vaMultiThreads1 > 0
+ #ifdef USE_UPNP
+         || vnThreadsRunning[5] > 0
+ #endif
+@@ -1734,7 +1861,9 @@ bool StopNode()
+     if (vnThreadsRunning[1] > 0) printf("ThreadOpenConnections still running\n");
+     if (vnThreadsRunning[2] > 0) printf("ThreadMessageHandler still running\n");
+     if (vnThreadsRunning[3] > 0) printf("ThreadBitcoinMiner still running\n");
+-    if (vnThreadsRunning[4] > 0) printf("ThreadRPCServer still running\n");
++    if (vnThreadsRunning[4] > 0) printf("ThreadRPCListener still running\n");
++    if (vaMultiThreads0 > 0) printf("ThreadsConnect still running\n");
++    if (vaMultiThreads1 > 0) printf("ThreadsRPCServer still running\n");
+     if (fHaveUPnP && vnThreadsRunning[5] > 0) printf("ThreadMapPort still running\n");
+     while (vnThreadsRunning[2] > 0 || vnThreadsRunning[4] > 0)
+         Sleep(20);
+diff -bup orig/net.h new/net.h
+--- orig/net.h	2011-08-06 01:43:46.544713109 -0700
++++ new/net.h	2011-08-06 05:17:37.102702710 -0700
+@@ -6,6 +6,7 @@
+ 
+ #include <deque>
+ #include <boost/array.hpp>
++#include <boost/detail/atomic_count.hpp>
+ #include <openssl/rand.h>
+ 
+ #ifndef __WXMSW__
+@@ -476,6 +477,7 @@ extern CAddress addrLocalHost;
+ extern CNode* pnodeLocalHost;
+ extern uint64 nLocalHostNonce;
+ extern boost::array<int, 10> vnThreadsRunning;
++extern boost::detail::atomic_count vaMultiThreads0, vaMultiThreads1;
+ extern SOCKET hListenSocket;
+ 
+ extern std::vector<CNode*> vNodes;
+@@ -520,6 +522,7 @@ public:
+     bool fNetworkNode;
+     bool fSuccessfullyConnected;
+     bool fDisconnect;
++    bool fNeedProcess;
+ protected:
+     int nRefCount;
+ public:
+@@ -575,6 +578,7 @@ public:
+         fNetworkNode = false;
+         fSuccessfullyConnected = false;
+         fDisconnect = false;
++        fNeedProcess = false;
+         nRefCount = 0;
+         nReleaseTime = 0;
+         hashContinue = 0;
+diff -bup orig/rpc.cpp new/rpc.cpp
+--- orig/rpc.cpp	2011-08-06 01:43:46.538713117 -0700
++++ new/rpc.cpp	2011-08-06 05:17:37.100702716 -0700
+@@ -2,6 +2,16 @@
+ // Distributed under the MIT/X11 software license, see the accompanying
+ // file license.txt or http://www.opensource.org/licenses/mit-license.php.
+ 
++// CAUTION: This is not the offical rpc.cpp from the official
++// bitcoin distribution. It has been modified by me
++// <davidjoelschwartz@gmail.com> to support multi-threaded RPC.
++// This is quick and dirty code, it may not work for you. No warranties
++// are expressed or implied. I made a best effort to improve the RPC
++// performance. This notification is for blame, not for credit and
++// may be removed if this change, or one similar, is accepted into the
++// main distribution. If this has helped you, please donate to:
++// 1H3STBxuzEHZQQD4hkjVE22TWTazcZzeBw
++
+ #include "headers.h"
+ #include "cryptopp/sha.h"
+ #include "db.h"
+@@ -18,6 +28,7 @@
+ #include <boost/filesystem/fstream.hpp>
+ typedef boost::asio::ssl::stream<boost::asio::ip::tcp::socket> SSLStream;
+ #endif
++#define BOOST_SPIRIT_THREADSAFE
+ #include "json/json_spirit_reader_template.h"
+ #include "json/json_spirit_writer_template.h"
+ #include "json/json_spirit_utils.h"
+@@ -36,6 +47,7 @@ void ThreadRPCServer2(void* parg);
+ typedef Value(*rpcfn_type)(const Array& params, bool fHelp);
+ extern map<string, rpcfn_type> mapCallTable;
+ 
++void ThreadRPCServer3(void* parg);
+ 
+ Object JSONRPCError(int code, const string& message)
+ {
+@@ -1311,36 +1323,24 @@ Value validateaddress(const Array& param
+ }
+ 
+ 
+-Value getwork(const Array& params, bool fHelp)
+-{
+-    if (fHelp || params.size() > 1)
+-        throw runtime_error(
+-            "getwork [data]\n"
+-            "If [data] is not specified, returns formatted hash data to work on:\n"
+-            "  \"midstate\" : precomputed hash state after hashing the first half of the data\n"
+-            "  \"data\" : block data\n"
+-            "  \"hash1\" : formatted hash buffer for second hash\n"
+-            "  \"target\" : little endian hash target\n"
+-            "If [data] is specified, tries to solve the block and returns true if it was successful.");
+-
+-    if (vNodes.empty())
+-        throw JSONRPCError(-9, "Bitcoin is not connected!");
++static boost::mutex mGetWork;
++static CReserveKey *reservekey = NULL;
++static CBlockIndex* pindexPrev;
++static CBlock* pblock;
++static map<uint256, pair<CBlock*, unsigned int> > mapNewBlock;
++static vector<CBlock*> vNewBlock;
+ 
+-    if (IsInitialBlockDownload())
+-        throw JSONRPCError(-10, "Bitcoin is downloading blocks...");
+ 
+-    static map<uint256, pair<CBlock*, unsigned int> > mapNewBlock;
+-    static vector<CBlock*> vNewBlock;
+-    static CReserveKey reservekey(pwalletMain);
++void GetWorkBlock(char *pmidstate, char *pdata, char *phash1, uint256 &hashTarget)
++{ // Fill the buffers with a correct work unit
++    boost::unique_lock<boost::mutex> lock(mGetWork);
+ 
+-    if (params.size() == 0)
+-    {
+-        // Update block
+         static unsigned int nTransactionsUpdatedLast;
+-        static CBlockIndex* pindexPrev;
+         static int64 nStart;
+         static CBlock* pblock;
+-        if (pindexPrev != pindexBest ||
++
++    // Update block if needed
++    while (pindexPrev != pindexBest ||
+             (nTransactionsUpdated != nTransactionsUpdatedLast && GetTime() - nStart > 60))
+         {
+             if (pindexPrev != pindexBest)
+@@ -1356,9 +1356,12 @@ Value getwork(const Array& params, bool 
+             nStart = GetTime();
+ 
+             // Create new block
+-            pblock = CreateNewBlock(reservekey);
+-            if (!pblock)
++        if (reservekey == NULL)
++            reservekey = new CReserveKey(pwalletMain);
++        pblock = CreateNewBlock(*reservekey);
++        if (pblock == NULL)
+                 throw JSONRPCError(-7, "Out of memory");
++
+             vNewBlock.push_back(pblock);
+         }
+ 
+@@ -1375,18 +1378,43 @@ Value getwork(const Array& params, bool 
+         mapNewBlock[pblock->hashMerkleRoot] = make_pair(pblock, nExtraNonce);
+ 
+         // Prebuild hash buffers
++    FormatHashBuffers(pblock, pmidstate, pdata, phash1);
++    hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
++}
++
++Value getwork(const Array& params, bool fHelp)
++{
++    if (fHelp || params.size() > 1)
++        throw runtime_error(
++            "getwork [data]\n"
++            "If [data] is not specified, returns formatted hash data to work on:\n"
++            "  \"midstate\" : precomputed hash state after hashing the first half of the data\n"
++            "  \"data\" : block data\n"
++            "  \"hash1\" : formatted hash buffer for second hash\n"
++            "  \"target\" : little endian hash target\n"
++            "If [data] is specified, tries to solve the block and returns true if it was successful.");
++
++    if (vNodes.empty())
++        throw JSONRPCError(-9, "Bitcoin is not connected!");
++
++    if (IsInitialBlockDownload())
++        throw JSONRPCError(-10, "Bitcoin is downloading blocks...");
++
++    if (params.size() == 0)
++    {
+         char pmidstate[32];
+         char pdata[128];
+         char phash1[64];
+-        FormatHashBuffers(pblock, pmidstate, pdata, phash1);
++        char hexbuf[512];
++        uint256 hashTarget;
+ 
+-        uint256 hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
++        GetWorkBlock(pmidstate, pdata, phash1, hashTarget);
+ 
+         Object result;
+-        result.push_back(Pair("midstate", HexStr(BEGIN(pmidstate), END(pmidstate))));
+-        result.push_back(Pair("data",     HexStr(BEGIN(pdata), END(pdata))));
+-        result.push_back(Pair("hash1",    HexStr(BEGIN(phash1), END(phash1))));
+-        result.push_back(Pair("target",   HexStr(BEGIN(hashTarget), END(hashTarget))));
++        result.push_back(Pair("midstate", ToHex(pmidstate, 32, hexbuf)));
++        result.push_back(Pair("data",     ToHex(pdata, 128, hexbuf)));
++        result.push_back(Pair("hash1",    ToHex(phash1, 64, hexbuf)));
++        result.push_back(Pair("target",   ToHex((const char *) &hashTarget, sizeof(hashTarget), hexbuf)));
+         return result;
+     }
+     else
+@@ -1401,6 +1429,9 @@ Value getwork(const Array& params, bool 
+         for (int i = 0; i < 128/4; i++)
+             ((unsigned int*)pdata)[i] = CryptoPP::ByteReverse(((unsigned int*)pdata)[i]);
+ 
++        // Get exclusive access to getwork structures
++        boost::unique_lock<boost::mutex> lock(mGetWork);
++
+         // Get saved block
+         if (!mapNewBlock.count(pdata->hashMerkleRoot))
+             return false;
+@@ -1412,12 +1443,39 @@ Value getwork(const Array& params, bool 
+         pblock->vtx[0].vin[0].scriptSig = CScript() << pblock->nBits << CBigNum(nExtraNonce);
+         pblock->hashMerkleRoot = pblock->BuildMerkleTree();
+ 
+-        return CheckWork(pblock, *pwalletMain, reservekey);
++        return CheckWork(pblock, *pwalletMain, *reservekey);
+     }
+ }
+ 
++std::string FastGetWork(const std::string id)
++{ // bypass JSON in the most common case
++    if (vNodes.empty())
++        throw JSONRPCError(-9, "Bitcoin is not connected!");
++
++    if (IsInitialBlockDownload())
++        throw JSONRPCError(-10, "Bitcoin is downloading blocks...");
++
++    char pmidstate[32];
++    char pdata[128];
++    char phash1[64];
++    char hexbuf[512];
++    uint256 hashTarget;
+ 
++    GetWorkBlock(pmidstate, pdata, phash1, hashTarget);
+ 
++    std::string result = "{\"result\":{\"midstate\" : \"";
++    result += ToHex(pmidstate, 32, hexbuf);
++    result += "\",\"data\":\"";
++    result += ToHex(pdata, 128, hexbuf);
++    result += "\",\"hash1\":\"";
++    result += ToHex(phash1, 64, hexbuf);
++    result += "\",\"target\":\"";
++    result += ToHex((const char *) &hashTarget, sizeof(hashTarget), hexbuf);
++    result += "\"},\"error\":null,\"id\":\"";
++    result += id;
++    result += "\"}\n";
++    return result;
++}
+ 
+ 
+ 
+@@ -1516,6 +1574,7 @@ string HTTPPost(const string& strMsg, co
+       << "Host: 127.0.0.1\r\n"
+       << "Content-Type: application/json\r\n"
+       << "Content-Length: " << strMsg.size() << "\r\n"
++      << "Connection: close"
+       << "Accept: application/json\r\n";
+     BOOST_FOREACH(const PAIRTYPE(string, string)& item, mapRequestHeaders)
+         s << item.first << ": " << item.second << "\r\n";
+@@ -1537,7 +1596,7 @@ string rfc1123Time()
+     return string(buffer);
+ }
+ 
+-static string HTTPReply(int nStatus, const string& strMsg)
++static string HTTPReply(int nStatus, const string& strMsg, bool keepalive)
+ {
+     if (nStatus == 401)
+         return strprintf("HTTP/1.0 401 Authorization Required\r\n"
+@@ -1556,30 +1615,31 @@ static string HTTPReply(int nStatus, con
+             "</HEAD>\r\n"
+             "<BODY><H1>401 Unauthorized.</H1></BODY>\r\n"
+             "</HTML>\r\n", rfc1123Time().c_str(), FormatFullVersion().c_str());
+-    string strStatus;
+-         if (nStatus == 200) strStatus = "OK";
+-    else if (nStatus == 400) strStatus = "Bad Request";
+-    else if (nStatus == 403) strStatus = "Forbidden";
+-    else if (nStatus == 404) strStatus = "Not Found";
+-    else if (nStatus == 500) strStatus = "Internal Server Error";
++    const char *cStatus;
++         if (nStatus == 200) cStatus = "OK";
++    else if (nStatus == 400) cStatus = "Bad Request";
++    else if (nStatus == 403) cStatus = "Forbidden";
++    else if (nStatus == 404) cStatus = "Not Found";
++    else if (nStatus == 500) cStatus = "Internal Server Error";
++    else cStatus = "";
+     return strprintf(
+             "HTTP/1.1 %d %s\r\n"
+             "Date: %s\r\n"
+-            "Connection: close\r\n"
++            "Connection: %s\r\n"
+             "Content-Length: %d\r\n"
+             "Content-Type: application/json\r\n"
+             "Server: bitcoin-json-rpc/%s\r\n"
+             "\r\n"
+             "%s",
+-        nStatus,
+-        strStatus.c_str(),
++        nStatus, cStatus,
+         rfc1123Time().c_str(),
++        keepalive ? "keep-alive" : "close",
+         strMsg.size(),
+         FormatFullVersion().c_str(),
+         strMsg.c_str());
+ }
+ 
+-int ReadHTTPStatus(std::basic_istream<char>& stream)
++int ReadHTTPStatus(std::basic_istream<char>& stream, int &proto)
+ {
+     string str;
+     getline(stream, str);
+@@ -1587,6 +1647,10 @@ int ReadHTTPStatus(std::basic_istream<ch
+     boost::split(vWords, str, boost::is_any_of(" "));
+     if (vWords.size() < 2)
+         return 500;
++    proto = 0;
++    const char *ver = strstr(str.c_str(), "HTTP/1.");
++    if (ver != NULL)
++        proto = atoi(ver+7);
+     return atoi(vWords[1].c_str());
+ }
+ 
+@@ -1621,7 +1685,8 @@ int ReadHTTP(std::basic_istream<char>& s
+     strMessageRet = "";
+ 
+     // Read status
+-    int nStatus = ReadHTTPStatus(stream);
++    int nProto;
++    int nStatus = ReadHTTPStatus(stream, nProto);
+ 
+     // Read header
+     int nLen = ReadHTTPHeader(stream, mapHeadersRet);
+@@ -1636,6 +1701,16 @@ int ReadHTTP(std::basic_istream<char>& s
+         strMessageRet = string(vch.begin(), vch.end());
+     }
+ 
++    string sConHdr=mapHeadersRet["connection"];
++
++    if ( (sConHdr != "close") && (sConHdr != "keep-alive") )
++    {
++        if(nProto >= 1)
++            mapHeadersRet["connection"]="keep-alive";
++        else
++            mapHeadersRet["connection"]="close";
++    }
++
+     return nStatus;
+ }
+ 
+@@ -1658,23 +1733,6 @@ string EncodeBase64(string s)
+     return result;
+ }
+ 
+-string DecodeBase64(string s)
+-{
+-    BIO *b64, *bmem;
+-
+-    char* buffer = static_cast<char*>(calloc(s.size(), sizeof(char)));
+-
+-    b64 = BIO_new(BIO_f_base64());
+-    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+-    bmem = BIO_new_mem_buf(const_cast<char*>(s.c_str()), s.size());
+-    bmem = BIO_push(b64, bmem);
+-    BIO_read(bmem, buffer, s.size());
+-    BIO_free_all(bmem);
+-
+-    string result(buffer);
+-    free(buffer);
+-    return result;
+-}
+ 
+ bool HTTPAuthorized(map<string, string>& mapHeaders)
+ {
+@@ -1688,7 +1746,7 @@ bool HTTPAuthorized(map<string, string>&
+         return false;
+     string strUser = strUserPass.substr(0, nColon);
+     string strPassword = strUserPass.substr(nColon+1);
+-    return (strUser == mapArgs["-rpcuser"] && strPassword == mapArgs["-rpcpassword"]);
++    return (strUser == strRPCUser && strPassword == strRPCPass);
+ }
+ 
+ //
+@@ -1730,7 +1788,7 @@ void ErrorReply(std::ostream& stream, co
+     if (code == -32600) nStatus = 400;
+     else if (code == -32601) nStatus = 404;
+     string strReply = JSONRPCReply(Value::null, objError, id);
+-    stream << HTTPReply(nStatus, strReply) << std::flush;
++    stream << HTTPReply(nStatus, strReply, false) << std::flush;
+ }
+ 
+ bool ClientAllowed(const string& strAddress)
+@@ -1798,6 +1856,28 @@ private:
+ };
+ #endif
+ 
++class AcceptedConnection
++{
++    public:
++#ifdef USE_SSL
++    SSLStream sslStream;
++    SSLIOStreamDevice d;
++    iostreams::stream<SSLIOStreamDevice> stream;
++#else
++    ip::tcp::iostream stream;
++#endif
++
++    ip::tcp::endpoint peer;
++
++#ifdef USE_SSL
++    AcceptedConnection(asio::io_service &io_service, ssl::context &context,
++     bool fUseSSL) : sslStream(io_service, context), d(sslStream, fUseSSL),
++     stream(d) { ; }
++#else
++    AcceptedConnection(void) { ; }
++#endif
++};
++
+ void ThreadRPCServer(void* parg)
+ {
+     IMPLEMENT_RANDOMIZE_STACK(ThreadRPCServer(parg));
+@@ -1873,49 +1953,64 @@ void ThreadRPCServer2(void* parg)
+     {
+         // Accept connection
+ #ifdef USE_SSL
+-        SSLStream sslStream(io_service, context);
+-        SSLIOStreamDevice d(sslStream, fUseSSL);
+-        iostreams::stream<SSLIOStreamDevice> stream(d);
++        AcceptedConnection *conn=new AcceptedConnection(io_service, context, fUseSSL);
+ #else
+-        ip::tcp::iostream stream;
++        AcceptedConnection *conn=new AcceptedConnection();
+ #endif
+ 
+-        ip::tcp::endpoint peer;
+         vnThreadsRunning[4]--;
+ #ifdef USE_SSL
+-        acceptor.accept(sslStream.lowest_layer(), peer);
++        acceptor.accept(conn->sslStream.lowest_layer(), conn->peer);
+ #else
+-        acceptor.accept(*stream.rdbuf(), peer);
++        acceptor.accept(*conn->stream.rdbuf(), conn->peer);
+ #endif
+         vnThreadsRunning[4]++;
++
+         if (fShutdown)
++        {
++            delete conn;
+             return;
++        }
+ 
+         // Restrict callers by IP
+-        if (!ClientAllowed(peer.address().to_string()))
++        if (!ClientAllowed(conn->peer.address().to_string()))
+         {
+-            // Only send a 403 if we're not using SSL to prevent a DoS during the SSL handshake.
++            // Only send a 403 if we're not using SSL to prevent a DoS during 
+             if (!fUseSSL)
+-                stream << HTTPReply(403, "") << std::flush;
+-            continue;
++                conn->stream << HTTPReply(403, "", false) << std::flush;
++            delete conn;
++        }
++        else
++            CreateThread(ThreadRPCServer3, (void *) conn);
+         }
++}
+ 
+-        map<string, string> mapHeaders;
+-        string strRequest;
++void ThreadRPCServer3(void* parg)
++{
++    IMPLEMENT_RANDOMIZE_STACK(ThreadRPCServer3(parg));
++    ++vaMultiThreads1;
++    AcceptedConnection *conn=(AcceptedConnection *) parg;
+ 
+-        boost::thread api_caller(ReadHTTP, boost::ref(stream), boost::ref(mapHeaders), boost::ref(strRequest));
+-        if (!api_caller.timed_join(boost::posix_time::seconds(GetArg("-rpctimeout", 30))))
+-        {   // Timed out:
+-            acceptor.cancel();
+-            printf("ThreadRPCServer ReadHTTP timeout\n");
+-            continue;
++    bool fRun = true;
++    loop
++    {
++        if (fShutdown || !fRun)
++        {
++           conn->stream.close();
++           delete conn;
++           --vaMultiThreads1;
++           return;
+         }
+ 
++        map<string, string> mapHeaders;
++        string strRequest;
++        ReadHTTP(conn->stream, mapHeaders, strRequest);
++
+         // Check authorization
+         if (mapHeaders.count("authorization") == 0)
+         {
+-            stream << HTTPReply(401, "") << std::flush;
+-            continue;
++            conn->stream << HTTPReply(401, "", false) << std::flush;
++            break;
+         }
+         if (!HTTPAuthorized(mapHeaders))
+         {
+@@ -1923,9 +2018,38 @@ void ThreadRPCServer2(void* parg)
+             if (mapArgs["-rpcpassword"].size() < 15)
+                 Sleep(50);
+ 
+-            stream << HTTPReply(401, "") << std::flush;
++            conn->stream << HTTPReply(401, "", false) << std::flush;
+             printf("ThreadRPCServer incorrect password attempt\n");
++            break;
++        }
++        if (mapHeaders["connection"] == "close")
++            fRun = false;
++
++        if ((strRequest.find("\"getwork\"") != std::string::npos) && strRequest.find("[]") != std::string::npos)
++        { // This is imperfect code
++            std::string id;
++            size_t p = strRequest.find("\"id\":\"");
++            if (p != std::string::npos)
++            {
++                size_t ep = strRequest.find("\"", p+6);
++                id = strRequest.substr(p+6, p+ep);
++            }
++            try
++            {
++                conn->stream << HTTPReply(200, FastGetWork(id), fRun) << std::flush;
++            }
++            catch (std::exception& e)
++            {
++                    ErrorReply(conn->stream, JSONRPCError(-1, e.what()), id);
++                    fRun = false;
++            }
++            catch (Object& e)
++            {
++                    ErrorReply(conn->stream, e, id);
++                    fRun = false;
++            }
+             continue;
++            
+         }
+ 
+         Value id = Value::null;
+@@ -1941,6 +2065,7 @@ void ThreadRPCServer2(void* parg)
+             id = find_value(request, "id");
+ 
+             // Parse method
++            Value valParams = find_value(request, "params");
+             Value valMethod = find_value(request, "method");
+             if (valMethod.type() == null_type)
+                 throw JSONRPCError(-32600, "Missing method");
+@@ -1949,9 +2074,29 @@ void ThreadRPCServer2(void* parg)
+             string strMethod = valMethod.get_str();
+             if (strMethod != "getwork")
+                 printf("ThreadRPCServer method=%s\n", strMethod.c_str());
++            else
++            { // is a getwork request
++               if( (valParams.type() == array_type) && valParams.get_array().size() == 0 )
++               {
++                try
++                {
++                    conn->stream << HTTPReply(200, FastGetWork(id.type()==str_type ? id.get_str() : ""), fRun) << std::flush;
++                }
++                catch (std::exception& e)
++                {
++                        ErrorReply(conn->stream, JSONRPCError(-1, e.what()), id);
++                        fRun = false;
++                }
++                catch (Object& e)
++                {
++                        ErrorReply(conn->stream, e, id);
++                        fRun = false;
++                }
++                continue;
++               } 
++            }
+ 
+             // Parse params
+-            Value valParams = find_value(request, "params");
+             Array params;
+             if (valParams.type() == array_type)
+                 params = valParams.get_array();
+@@ -1977,22 +2122,32 @@ void ThreadRPCServer2(void* parg)
+ 
+                 // Send reply
+                 string strReply = JSONRPCReply(result, Value::null, id);
+-                stream << HTTPReply(200, strReply) << std::flush;
++                conn->stream << HTTPReply(200, strReply, fRun) << std::flush;
+             }
+             catch (std::exception& e)
+             {
+-                ErrorReply(stream, JSONRPCError(-1, e.what()), id);
++                ErrorReply(conn->stream, JSONRPCError(-1, e.what()), id);
++                fRun = false;
++            }
++            catch (Object& e)
++            {
++                ErrorReply(conn->stream, e, id);
++                fRun = false;
+             }
+         }
+         catch (Object& objError)
+         {
+-            ErrorReply(stream, objError, id);
++            ErrorReply(conn->stream, objError, id);
++            break;
+         }
+         catch (std::exception& e)
+         {
+-            ErrorReply(stream, JSONRPCError(-32700, e.what()), id);
++            ErrorReply(conn->stream, JSONRPCError(-32700, e.what()), id);
++            break;
+         }
+     }
++    delete conn;
++    --vaMultiThreads1;
+ }
+ 
+ 
+@@ -2000,7 +2155,7 @@ void ThreadRPCServer2(void* parg)
+ 
+ Object CallRPC(const string& strMethod, const Array& params)
+ {
+-    if (mapArgs["-rpcuser"] == "" && mapArgs["-rpcpassword"] == "")
++    if (strRPCUser == "" && strRPCPass == "")
+         throw runtime_error(strprintf(
+             _("You must set rpcpassword=<password> in the configuration file:\n%s\n"
+               "If the file does not exist, create it with owner-readable-only file permissions."),
+@@ -2028,7 +2183,7 @@ Object CallRPC(const string& strMethod, 
+ 
+ 
+     // HTTP basic authentication
+-    string strUserPass64 = EncodeBase64(mapArgs["-rpcuser"] + ":" + mapArgs["-rpcpassword"]);
++    string strUserPass64 = EncodeBase64(strRPCUser + ":" + strRPCPass);
+     map<string, string> mapRequestHeaders;
+     mapRequestHeaders["Authorization"] = string("Basic ") + strUserPass64;
+ 
+diff -bup orig/util.cpp new/util.cpp
+--- orig/util.cpp	2011-08-06 01:43:46.540713115 -0700
++++ new/util.cpp	2011-08-06 05:17:37.101702713 -0700
+@@ -25,7 +25,7 @@ bool fShutdown = false;
+ bool fDaemon = false;
+ bool fServer = false;
+ bool fCommandLine = false;
+-string strMiscWarning;
++string strMiscWarning, strRPCUser, strRPCPass;
+ bool fTestNet = false;
+ bool fNoListen = false;
+ bool fLogTimestamps = false;
+@@ -400,6 +400,25 @@ bool ParseMoney(const char* pszIn, int64
+ }
+ 
+ 
++char* ToHex(const char *ptr, int len, char *outbuf)
++{ // max length is 255
++    static char hexmap[16] = { '0', '1', '2', '3', '4', '5', '6', '7',
++                               '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
++    char *outptr = outbuf;
++    unsigned char *iptr = (unsigned char *) ptr; 
++
++    while (len-- > 0)
++    {
++        *outptr++ = hexmap[*iptr>>4];
++        *outptr++ = hexmap[*iptr&15];
++        iptr++;
++     }
++
++     *outptr=0;
++     return outbuf;
++}
++
++
+ vector<unsigned char> ParseHex(const char* psz)
+ {
+     static char phexdigit[256] =
+@@ -439,6 +458,66 @@ vector<unsigned char> ParseHex(const cha
+     return vch;
+ }
+ 
++static const int decode64_table[256]=
++{
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1,
++ -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
++ 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28,
++ 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
++ 49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
++};                           
++                             
++std::string DecodeBase64(const std::string &s)
++{
++    char buf[1024];
++    if(s.length()>512) return "";
++    char *optr=buf;
++
++    int dec, mode=0, left=0;
++    size_t index=0;
++    for (int i=0; i<s.length(); i++)
++    {
++         dec=decode64_table[s[i]];
++         if(dec==-1) break;
++         switch(mode)
++         {
++             case 0: // we have no bits and get 6
++                 left = dec;
++                 mode = 1;
++                 break;
++
++              case 1: // we have 6 bits and keep 4
++                 *optr++ = (left<<2) | (dec>>4);
++                  left = dec & 15;
++                  mode = 2;
++                  break;
++                  
++             case 2: // we have 4 bits and get 6, we keep 2            
++                  *optr++ = (left<<4) | (dec>>2);
++                 left = dec & 3;
++                 mode = 3;
++                 break;
++                 
++             case 3: // we have 2 bits and get 6
++                 *optr++ = (left<<6) | dec;
++                 mode=0;
++                 break;
++         }
++    }
++
++    *optr=0;   
++    return buf;
++}
++
++
+ vector<unsigned char> ParseHex(const string& str)
+ {
+     return ParseHex(str.c_str());
+diff -bup orig/util.h new/util.h
+--- orig/util.h	2011-08-06 01:43:46.547713103 -0700
++++ new/util.h	2011-08-06 05:17:37.103702707 -0700
+@@ -167,7 +167,7 @@ extern bool fShutdown;
+ extern bool fDaemon;
+ extern bool fServer;
+ extern bool fCommandLine;
+-extern std::string strMiscWarning;
++extern std::string strMiscWarning, strRPCUser, strRPCPass;
+ extern bool fTestNet;
+ extern bool fNoListen;
+ extern bool fLogTimestamps;
+@@ -185,6 +185,7 @@ void ParseString(const std::string& str,
+ std::string FormatMoney(int64 n, bool fPlus=false);
+ bool ParseMoney(const std::string& str, int64& nRet);
+ bool ParseMoney(const char* pszIn, int64& nRet);
++char* ToHex(const char *ptr, int len, char *outbuf);
+ std::vector<unsigned char> ParseHex(const char* psz);
+ std::vector<unsigned char> ParseHex(const std::string& str);
+ void ParseParameters(int argc, char* argv[]);
+@@ -209,6 +210,7 @@ int64 GetTime();
+ int64 GetAdjustedTime();
+ void AddTimeData(unsigned int ip, int64 nTime);
+ std::string FormatFullVersion();
++std::string DecodeBase64(const std::string &s);
+ 
+ 
+ 
+@@ -623,7 +625,10 @@ inline pthread_t CreateThread(void(*pfn)
+         return (pthread_t)0;
+     }
+     if (!fWantHandle)
++    {
++        pthread_detach(hthread);
+         return (pthread_t)-1;
++    }
+     return hthread;
+ }
+ 
+@@ -650,7 +655,7 @@ inline bool TerminateThread(pthread_t ht
+ 
+ inline void ExitThread(unsigned int nExitCode)
+ {
+-    pthread_exit((void*)nExitCode);
++    pthread_exit((void*)(uintptr_t)nExitCode);
+ }
+ #endif
+ 
+
