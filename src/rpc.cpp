@@ -1528,6 +1528,7 @@ Value getworkaux(const Array& params, bool fHelp)
 
     if (params.size() == 1)
     {
+        static vector<unsigned char> vchAuxPrev;
         vector<unsigned char> vchAux = ParseHex(params[0].get_str());
 
         // Update block
@@ -1536,6 +1537,7 @@ Value getworkaux(const Array& params, bool fHelp)
         static int64 nStart;
         static CBlock* pblock;
         if (pindexPrev != pindexBest ||
+            vchAux != vchAuxPrev ||
             (nTransactionsUpdated != nTransactionsUpdatedLast && GetTime() - nStart > 60))
         {
             if (pindexPrev != pindexBest)
@@ -1548,6 +1550,7 @@ Value getworkaux(const Array& params, bool fHelp)
             }
             nTransactionsUpdatedLast = nTransactionsUpdated;
             pindexPrev = pindexBest;
+            vchAuxPrev = vchAux;
             nStart = GetTime();
 
             // Create new block
