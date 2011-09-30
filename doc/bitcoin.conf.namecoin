@@ -99,3 +99,6 @@ AuxPowStartBlock=19200
 
 # this chain ID number as with bitcoin chainid=0  namecoin chainid=1, at this point I'm not sure if we should set to 1 or 2 or?
 OurChainID=1
+
+#this is the block number that activates time warp fix by ArtForz in GetNextWorkRequired() function, in namecoin it starts at 19200. 
+FullRetargetStartBlock=19200

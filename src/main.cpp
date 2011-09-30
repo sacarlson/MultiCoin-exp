@@ -789,9 +789,15 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
         return pindexLast->nBits;
     }
 
+    // Go back the full period unless it's the first retarget after genesis. Code courtesy of ArtForz
+
+    int nBlocksBack = nInterval-1;
+    if(pindexLast->nHeight >= GetArgIntxx(INT_MAX,"-FullRetargetStartBlock") && ((pindexLast->nHeight+1) > nInterval))
+        nBlocksBack = nInterval;
+
     // Go back by what we want to be 14 days worth of blocks
     const CBlockIndex* pindexFirst = pindexLast;
-    for (int i = 0; pindexFirst && i < nInterval-1; i++)
+    for (int i = 0; pindexFirst && i < nBlocksBack; i++)
         pindexFirst = pindexFirst->pprev;
     assert(pindexFirst);
 
