@@ -735,7 +735,7 @@ int64 static GetBlockValue(int nHeight, int64 nFees)
 }
 
 
-unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
+unsigned int static GetNextWorkRequired_org(const CBlockIndex* pindexLast)
 {
     //const int64 nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
     const int64 nTargetTimespan = GetArgIntxx(1209600,"-nTargetTimespan");
@@ -804,10 +804,11 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
     // Limit adjustment step
     int64 nActualTimespan = pindexLast->GetBlockTime() - pindexFirst->GetBlockTime();
     printf("  nActualTimespan = %"PRI64d"  before bounds\n", nActualTimespan);
-    if (nActualTimespan < nTargetTimespan/4)
-        nActualTimespan = nTargetTimespan/4;
-    if (nActualTimespan > nTargetTimespan*4)
-        nActualTimespan = nTargetTimespan*4;
+    printf("  LimitAdjustmentStep set to = %f \n",((float)GetArg("-LimitAdjustmentStep", 4000)/1000));
+    if (nActualTimespan < nTargetTimespan/((float)GetArg("-LimitAdjustmentStep", 4000)/1000))
+        nActualTimespan = nTargetTimespan/((float)GetArg("-LimitAdjustmentStep", 4000)/1000);
+    if (nActualTimespan > nTargetTimespan*((float)GetArg("-LimitAdjustmentStep", 4000)/1000))
+        nActualTimespan = nTargetTimespan*((float)GetArg("-LimitAdjustmentStep", 4000)/1000);
 
     // Retarget
     CBigNum bnNew;
@@ -826,6 +827,90 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
 
     return bnNew.GetCompact();
 }
+
+unsigned int static GetNextWorkRequired_V2(const CBlockIndex* pindexLast)
+{
+    int64 nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+	bool revisedIxcoin = pindexLast->nHeight+1 > 20055; //next normal target: 20160
+	if (revisedIxcoin) nTargetTimespan = 24 * 60 * 60; //24 hours i.e. 144 blocks
+
+	const int64 nTargetSpacing = 10 * 60;
+    const int64 nInterval = nTargetTimespan / nTargetSpacing;
+
+    // Genesis block
+    if (pindexLast == NULL)
+        return bnProofOfWorkLimit.GetCompact();
+
+    // Only change once per interval
+    if ((pindexLast->nHeight+1) % nInterval != 0)
+        return pindexLast->nBits;
+
+    // Go back by what we want to be 14 days worth of blocks
+    const CBlockIndex* pindexFirst = pindexLast;
+    for (int i = 0; pindexFirst && i < nInterval-1; i++)
+        pindexFirst = pindexFirst->pprev;
+    assert(pindexFirst);
+
+    // Limit adjustment step
+    int64 nActualTimespan = pindexLast->GetBlockTime() - pindexFirst->GetBlockTime();
+    //printf("  nActualTimespan = %"PRI64d"  before bounds\n", nActualTimespan);
+    if (!revisedIxcoin) {
+		if (nActualTimespan < nTargetTimespan/4)
+	        nActualTimespan = nTargetTimespan/4;
+	    if (nActualTimespan > nTargetTimespan*4)
+	        nActualTimespan = nTargetTimespan*4;
+	}
+	else {
+	    //Altered version of SolidCoin.info retargetting code
+		int64 nTwoPercent = nTargetTimespan/50;
+	    //printf("  nActualTimespan = %"PRI64d"  before bounds\n", nActualTimespan);
+		
+	    if (nActualTimespan < nTargetTimespan)  //is time taken for a block less than 10minutes?
+	    {
+	         //limit increase to a much lower amount than dictates to get past the pump-n-dump mining phase
+	        //due to retargets being done more often it also needs to be lowered significantly from the 4x increase
+	        if(nActualTimespan<(nTwoPercent*16)) //less than ~3.2 minute?
+	            nActualTimespan=(nTwoPercent*45); //pretend it was only 10% faster than desired
+	        else if(nActualTimespan<(nTwoPercent*32)) //less than ~6.4 minutes?
+	            nActualTimespan=(nTwoPercent*47); //pretend it was only 6% faster than desired
+	        else
+	            nActualTimespan=(nTwoPercent*49); //pretend it was only 2% faster than desired
+	
+	        //int64 nTime=nTargetTimespan-nActualTimespan;
+	        //nActualTimespan = nTargetTimespan/2;
+	    }
+	    else if (nActualTimespan > nTargetTimespan*4)   nActualTimespan = nTargetTimespan*4;
+	}
+
+    // Retarget
+    CBigNum bnNew;
+    bnNew.SetCompact(pindexLast->nBits);
+    bnNew *= nActualTimespan;
+    bnNew /= nTargetTimespan;
+
+    if (bnNew > bnProofOfWorkLimit)
+        bnNew = bnProofOfWorkLimit;
+
+    /// debug print
+    printf("GetNextWorkRequired RETARGET\n");
+    printf("nTargetTimespan = %"PRI64d"    nActualTimespan = %"PRI64d"\n", nTargetTimespan, nActualTimespan);
+    printf("Before: %08x  %s\n", pindexLast->nBits, CBigNum().SetCompact(pindexLast->nBits).getuint256().ToString().c_str());
+    printf("After:  %08x  %s\n", bnNew.GetCompact(), bnNew.getuint256().ToString().c_str());
+
+    return bnNew.GetCompact();
+}
+
+unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast)
+{
+    if (GetArgIntxx(1,"-GetNextWorkVersion")==2)
+    {
+         return GetNextWorkRequired_V2(pindexLast);
+    }
+    else
+    {
+        return GetNextWorkRequired_org(pindexLast);
+    }
+} 
 
 bool CheckProofOfWork(uint256 hash, unsigned int nBits)
 {
