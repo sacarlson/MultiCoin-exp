@@ -63,6 +63,8 @@
 #define wxID_BUTTONEDIT 1021
 #define wxID_TEXTCTRL 1022
 
+extern std::string CoinName;
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Class CMainFrameBase
 ///////////////////////////////////////////////////////////////////////////////
@@ -122,7 +124,7 @@ class CMainFrameBase : public wxFrame
 		wxListCtrl* m_listCtrlSent;
 		wxListCtrl* m_listCtrlReceived;
 		
-		CMainFrameBase( wxWindow* parent, wxWindowID id = wxID_MAINFRAME, const wxString& title = _("Bitcoin"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 723,484 ), long style = wxDEFAULT_FRAME_STYLE|wxRESIZE_BORDER|wxTAB_TRAVERSAL );
+		CMainFrameBase( wxWindow* parent, wxWindowID id = wxID_MAINFRAME, const wxString& title = CoinName, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 723,484 ), long style = wxDEFAULT_FRAME_STYLE|wxRESIZE_BORDER|wxTAB_TRAVERSAL );
 		~CMainFrameBase();
 	
 };

@@ -1,12 +1,14 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
+
 #include "headers.h"
 #include "db.h"
 #include "rpc.h"
 #include "net.h"
 #include "init.h"
 #include "strlcpy.h"
+
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 #include <boost/interprocess/sync/file_lock.hpp>
@@ -15,6 +17,8 @@ using namespace std;
 using namespace boost;
 
 CWallet* pwalletMain;
+
+string CoinName;
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -158,10 +162,12 @@ bool AppInit2(int argc, char* argv[])
 
     ReadConfigFile(mapArgs, mapMultiArgs); // Must be done after processing datadir
 
+    CoinName = GetArg("-FullCoinName", "Bitcoin");
+
     if (mapArgs.count("-?") || mapArgs.count("--help"))
     {
         string strUsage = string() +
-          _("Bitcoin version") + " " + FormatFullVersion() + "\n\n" +
+          _("Multicoin version") + " " + FormatFullVersion() + "\n\n" +
           _("Usage:") + "\t\t\t\t\t\t\t\t\t\t\n" +
             "  bitcoin [options]                   \t  " + "\n" +
             "  bitcoin [options] <command> [params]\t  " + _("Send command to -server or bitcoind\n") +

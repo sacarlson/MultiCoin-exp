@@ -6,6 +6,7 @@
 ///////////////////////////////////////////////////////////////////////////
 
 #include "uibase.h"
+#include "util.h"
 
 #include "xpm/about.xpm"
 #include "xpm/addressbook20.xpm"
@@ -66,7 +67,7 @@ CMainFrameBase::CMainFrameBase( wxWindow* parent, wxWindowID id, const wxString&
 	wxBoxSizer* bSizer85;
 	bSizer85 = new wxBoxSizer( wxHORIZONTAL );
 	
-	m_staticText32 = new wxStaticText( this, wxID_ANY, _("Your Bitcoin Address:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText32 = new wxStaticText( this, wxID_ANY, _("Your Address:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText32->Wrap( -1 );
 	bSizer85->Add( m_staticText32, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 5 );
 	
@@ -342,7 +343,7 @@ COptionsDialogBase::COptionsDialogBase( wxWindow* parent, wxWindowID id, const w
 	
 	bSizer69->Add( 0, 16, 0, wxEXPAND, 5 );
 	
-	m_checkBoxStartOnSystemStartup = new wxCheckBox( m_panelMain, wxID_ANY, _("&Start Bitcoin on system startup"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_checkBoxStartOnSystemStartup = new wxCheckBox( m_panelMain, wxID_ANY, _("&Start on system startup"), wxDefaultPosition, wxDefaultSize, 0 );
 	bSizer69->Add( m_checkBoxStartOnSystemStartup, 0, wxALL, 5 );
 	
 	m_checkBoxMinimizeToTray = new wxCheckBox( m_panelMain, wxID_ANY, _("&Minimize to the tray instead of the taskbar"), wxDefaultPosition, wxDefaultSize, 0 );
@@ -504,8 +505,10 @@ CAboutDialogBase::CAboutDialogBase( wxWindow* parent, wxWindowID id, const wxStr
 	
 	wxBoxSizer* bSizer64;
 	bSizer64 = new wxBoxSizer( wxHORIZONTAL );
-	
-	m_staticText40 = new wxStaticText( this, wxID_ANY, _("Bitcoin "), wxDefaultPosition, wxDefaultSize, 0 );
+
+        wxString wintitle = GetArg("-CoinName", "Bitcoin");	
+
+	m_staticText40 = new wxStaticText( this, wxID_ANY, wintitle, wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText40->Wrap( -1 );
 	m_staticText40->SetFont( wxFont( 10, 74, 90, 92, false, wxT("Tahoma") ) );
 	
@@ -578,7 +581,7 @@ CSendDialogBase::CSendDialogBase( wxWindow* parent, wxWindowID id, const wxStrin
 	
 	fgSizer1->Add( 0, 0, 0, wxEXPAND, 5 );
 	
-	m_staticTextInstructions = new wxStaticText( this, wxID_ANY, _("Enter a Bitcoin address (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticTextInstructions = new wxStaticText( this, wxID_ANY, _("Enter a address (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticTextInstructions->Wrap( -1 );
 	fgSizer1->Add( m_staticTextInstructions, 0, wxTOP|wxRIGHT|wxLEFT, 5 );
 	
@@ -758,7 +761,7 @@ CYourAddressDialogBase::CYourAddressDialogBase( wxWindow* parent, wxWindowID id,
 	
 	bSizer68->Add( 0, 5, 0, wxEXPAND, 5 );
 	
-	m_staticText45 = new wxStaticText( this, wxID_ANY, _("These are your Bitcoin addresses for receiving payments.  You may want to give a different one to each sender so you can keep track of who is paying you.  The highlighted address is displayed in the main window."), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText45 = new wxStaticText( this, wxID_ANY, _("These are your addresses for receiving payments.  You may want to give a different one to each sender so you can keep track of who is paying you.  The highlighted address is displayed in the main window."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText45->Wrap( 590 );
 	bSizer68->Add( m_staticText45, 0, wxALL, 5 );
 	
@@ -834,7 +837,7 @@ CAddressBookDialogBase::CAddressBookDialogBase( wxWindow* parent, wxWindowID id,
 	
 	bSizer68->Add( 0, 0, 0, wxEXPAND, 5 );
 	
-	m_staticText55 = new wxStaticText( m_panelSending, wxID_ANY, _("Bitcoin Address"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText55 = new wxStaticText( m_panelSending, wxID_ANY, _("Address"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText55->Wrap( -1 );
 	m_staticText55->Hide();
 	
@@ -854,7 +857,7 @@ CAddressBookDialogBase::CAddressBookDialogBase( wxWindow* parent, wxWindowID id,
 	
 	bSizer681->Add( 0, 0, 0, wxEXPAND, 5 );
 	
-	m_staticText45 = new wxStaticText( m_panelReceiving, wxID_ANY, _("These are your Bitcoin addresses for receiving payments.  You can give a different one to each sender to keep track of who is paying you.  The highlighted address will be displayed in the main window."), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText45 = new wxStaticText( m_panelReceiving, wxID_ANY, _("These are your addresses for receiving payments.  You can give a different one to each sender to keep track of who is paying you.  The highlighted address will be displayed in the main window."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText45->Wrap( 570 );
 	bSizer681->Add( m_staticText45, 0, wxTOP|wxRIGHT|wxLEFT, 6 );
 	

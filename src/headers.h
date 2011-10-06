@@ -101,7 +101,7 @@
 #include "noui.h"
 #endif
 
-#ifdef GUI
+#ifdef XX_GUI
 #include "xpm/addressbook16.xpm"
 #include "xpm/addressbook20.xpm"
 #include "xpm/bitcoin16.xpm"

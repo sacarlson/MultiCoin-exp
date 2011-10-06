@@ -41,9 +41,10 @@ LIBS+= \
 
 
 DEBUGFLAGS=-g -D__WXDEBUG__
-CXXFLAGS=-O2 -Wno-invalid-offsetof -Wformat $(DEBUGFLAGS) $(DEFS)
+DEBUGFLAGS=-s
+CXXFLAGS=-O2 -pipe -Wno-invalid-offsetof -Wformat $(DEBUGFLAGS) $(DEFS)
 HEADERS=headers.h strlcpy.h serialize.h uint256.h util.h key.h bignum.h base58.h \
-    script.h db.h net.h irc.h keystore.h main.h wallet.h rpc.h uibase.h ui.h noui.h init.h auxpow.h
+    script.h db.h net.h irc.h keystore.h main.h wallet.h rpc.h noui.h init.h auxpow.h
 
 OBJS= \
     obj/auxpow.o \
@@ -69,6 +70,9 @@ obj/%.o: %.cpp $(HEADERS)
 
 cryptopp/obj/%.o: cryptopp/%.cpp
 	$(CXX) -c $(CXXFLAGS) -O3 -o $@ $<
+
+obj/uibase.o: uibase.h 
+obj/ui.o: ui.h
 
 multicoin: $(OBJS) obj/init.o obj/ui.o obj/uibase.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(WXLIBS) $(LIBS)

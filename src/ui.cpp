@@ -2,15 +2,21 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
 
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
+
 #include "headers.h"
 #include "db.h"
 #include "init.h"
 #include "strlcpy.h"
+
 #include <boost/filesystem/fstream.hpp>
 #include <boost/filesystem/convenience.hpp>
-#ifdef _MSC_VER
-#include <crtdbg.h>
-#endif
+
+#include "xpm/addressbook16.xpm"
+#include "xpm/bitcoin80.xpm"
+#include "xpm/send16noshadow.xpm"
 
 using namespace std;
 using namespace boost;
