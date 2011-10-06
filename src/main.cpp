@@ -10,6 +10,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 
+extern int OurChainID;
+
 using namespace std;
 using namespace boost;
 
@@ -1453,11 +1455,13 @@ int GetAuxPowStartBlock()
         return INT_MAX; // Never on prodnet
 }
 
+/*
 int GetOurChainID()
 {
     //return 0x0000;
     return GetArgIntxx(0,"-OurChainID");
 }
+*/
 
 bool CBlock::CheckProofOfWork(int nHeight) const
 {
@@ -1468,8 +1472,8 @@ bool CBlock::CheckProofOfWork(int nHeight) const
         // - parent block must not have the same chain ID (see CAuxPow::Check)
         // - index of this chain in chain merkle tree must be pre-determined (see CAuxPow::Check)
         // if (!fTestNet && GetChainID() != GetOurChainID())
-        printf("GetChainID = %d  GetOurChainID = %d \n",GetChainID(),GetOurChainID());
-        if (nHeight != INT_MAX && GetChainID() != GetOurChainID())
+        printf("GetChainID = %d  GetOurChainID = %d \n",GetChainID(), OurChainID);
+        if (nHeight != INT_MAX && GetChainID() != OurChainID)
             return error("CheckProofOfWork() : block does not have our chain ID");
 
         if (auxpow.get() != NULL)
@@ -3078,7 +3082,7 @@ public:
 
 void CBlock::SetNull()
 {
-    nVersion = BLOCK_VERSION_DEFAULT | (GetOurChainID() * BLOCK_VERSION_CHAIN_START);
+    nVersion = BLOCK_VERSION_DEFAULT | (OurChainID * BLOCK_VERSION_CHAIN_START);
     hashPrevBlock = 0;
     hashMerkleRoot = 0;
     nTime = 0;

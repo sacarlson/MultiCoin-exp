@@ -1,6 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Distributed under the MIT/X11 software license, see the accompanying
 // file license.txt or http://www.opensource.org/licenses/mit-license.php.
+
 #ifndef BITCOIN_UTIL_H
 #define BITCOIN_UTIL_H
 
@@ -448,6 +449,13 @@ inline int64 GetArg(const std::string& strArg, int64 nDefault)
 {
     if (mapArgs.count(strArg))
         return atoi64(mapArgs[strArg]);
+    return nDefault;
+}
+
+inline int GetArg(const std::string& strArg, int nDefault)
+{
+    if (mapArgs.count(strArg))
+        return strtol(mapArgs[strArg].c_str(), NULL, 0);
     return nDefault;
 }
 

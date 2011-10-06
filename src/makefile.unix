@@ -62,7 +62,7 @@ OBJS= \
 
 
 
-all: multicoind
+all: multicoind multicoin
 
 
 obj/%.o: %.cpp $(HEADERS)
