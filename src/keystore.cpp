@@ -17,8 +17,14 @@ std::vector<unsigned char> CKeyStore::GenerateNewKey()
     RandAddSeedPerfmon();
     CKey key;
     key.MakeNewKey();
+/*  AddKey does not checking, and return value is meaningless,
+    so don't check the return value for now, to stop meaningless logging
+     change later if a meaninfull
+    return value is added, or maybe just declare it a void function ?
+
     if (!AddKey(key))
         throw std::runtime_error("GenerateNewKey() : AddKey failed");
+*/
     return key.GetPubKey();
 }
 
