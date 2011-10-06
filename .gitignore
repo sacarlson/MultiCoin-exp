@@ -3,3 +3,14 @@ src/bitcoin
 src/bitcoind
 .*.swp
 *.*~*
+Makefile
+src/multicoin
+src/mutlicoind
+*.bak
+*.rej
+*.orig
+*.o
+*.obj
+*.patch
+.bitcoin
+wallet.dat
